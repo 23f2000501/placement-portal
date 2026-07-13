@@ -1,0 +1,469 @@
+from datetime import date, datetime, timedelta
+from flask import Flask, jsonify, request
+from flask_caching import Cache
+from flask_cors import CORS
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required
+from sqlalchemy import or_
+
+from config import Config
+from models import Application, CompanyProfile, PlacementDrive, StudentProfile, User, bcrypt, db
+from utils import role_required
+
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}},
+        supports_credentials=True,
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    )
+
+    @app.after_request
+    def add_cors_headers(response):
+        origin = request.headers.get("Origin")
+        allowed_origins = {"http://localhost:5173", "http://127.0.0.1:5173"}
+        if origin in allowed_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Vary"] = "Origin"
+        return response
+
+    db.init_app(app)
+    bcrypt.init_app(app)
+    JWTManager(app)
+    cache = Cache(app)
+
+    with app.app_context():
+        db.create_all()
+        admin = User.query.filter_by(email="admin@institute.edu").first()
+        if not admin:
+            admin = User(name="Institute Admin", email="admin@institute.edu", role="admin", is_active=True)
+            admin.set_password("Admin@123")
+            db.session.add(admin)
+            db.session.commit()
+
+        student = User.query.filter_by(email="student@institute.edu").first()
+        if not student:
+            student = User(name="Demo Student", email="student@institute.edu", role="student", is_active=True)
+            student.set_password("Student@123")
+            db.session.add(student)
+            db.session.flush()
+
+            student_profile = StudentProfile(
+                user_id=student.id,
+                branch="CSE",
+                year="3rd Year",
+                cgpa=8.7,
+                resume_url="",
+                placement_history="",
+            )
+            db.session.add(student_profile)
+            db.session.commit()
+
+    @app.route("/api/auth/login", methods=["POST"])
+    def login():
+        data = request.json or {}
+        email = data.get("email")
+        password = data.get("password")
+        user = User.query.filter_by(email=email).first()
+        if not user or not user.check_password(password):
+            return jsonify({"message": "Invalid email or password"}), 401
+        if not user.is_active or user.is_blacklisted:
+            return jsonify({"message": "Account blocked"}), 403
+
+        token = create_access_token(identity=str(user.id), expires_delta=timedelta(hours=8))
+        return jsonify({
+            "access_token": token,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "role": user.role,
+            },
+        })
+
+    @app.route("/api/auth/register_student", methods=["POST"])
+    def register_student():
+        data = request.json or {}
+        email = data.get("email")
+        if User.query.filter_by(email=email).first():
+            return jsonify({"message": "Email already exists"}), 400
+
+        user = User(name=data.get("name"), email=email, role="student", is_active=True)
+        user.set_password(data.get("password"))
+        db.session.add(user)
+        db.session.flush()
+
+        student = StudentProfile(
+            user_id=user.id,
+            branch=data.get("branch", ""),
+            year=data.get("year", ""),
+            cgpa=float(data.get("cgpa", 0)),
+            resume_url=data.get("resume_url", ""),
+            placement_history="",
+        )
+        db.session.add(student)
+        db.session.commit()
+        return jsonify({"message": "Student registered successfully"}), 201
+
+    @app.route("/api/auth/register_company", methods=["POST"])
+    def register_company():
+        data = request.json or {}
+        email = data.get("email")
+        if User.query.filter_by(email=email).first():
+            return jsonify({"message": "Email already exists"}), 400
+
+        owner_name = data.get("contact_person") or data.get("name") or "Company Contact"
+        user = User(name=owner_name, email=email, role="company", is_active=True)
+        user.set_password(data.get("password"))
+        db.session.add(user)
+        db.session.flush()
+
+        company = CompanyProfile(
+            user_id=user.id,
+            company_name=data.get("company_name"),
+            hr_contact=data.get("hr_contact"),
+            website=data.get("website", ""),
+            description=data.get("description", ""),
+        )
+        db.session.add(company)
+        db.session.commit()
+        return jsonify({"message": "Company registered successfully. Awaiting approval."}), 201
+
+    @app.route("/api/admin/dashboard", methods=["GET"])
+    @jwt_required()
+    @role_required("admin")
+    def admin_dashboard(current_user):
+        return jsonify({
+            "total_students": User.query.filter_by(role="student").count(),
+            "total_companies": User.query.filter_by(role="company").count(),
+            "total_drives": PlacementDrive.query.count(),
+            "approved_drives": PlacementDrive.query.filter_by(status="Approved").count(),
+            "pending_drives": PlacementDrive.query.filter_by(status="Pending").count(),
+            "approved_companies": CompanyProfile.query.filter_by(approved=True).count(),
+            "pending_companies": CompanyProfile.query.filter_by(approved=False, rejected=False).count(),
+            "applications": Application.query.count(),
+        })
+
+    @app.route("/api/admin/companies", methods=["GET"])
+    @jwt_required()
+    @role_required("admin")
+    def get_companies(current_user):
+        search = request.args.get("search", "")
+        query = CompanyProfile.query.join(User).filter(
+            or_(
+                CompanyProfile.company_name.ilike(f"%{search}%"),
+                User.email.ilike(f"%{search}%"),
+                User.name.ilike(f"%{search}%"),
+            )
+        )
+        companies = [{
+            "id": c.id,
+            "company_name": c.company_name,
+            "hr_contact": c.hr_contact,
+            "website": c.website,
+            "description": c.description,
+            "approved": c.approved,
+            "rejected": c.rejected,
+            "email": c.user.email,
+            "blacklisted": c.user.is_blacklisted,
+        } for c in query.all()]
+        return jsonify(companies)
+    
+    @app.route("/api/admin/students", methods=["GET"])
+    @jwt_required()
+    @role_required("admin")
+    def get_students(current_user):
+        search = request.args.get("search", "")
+        query = StudentProfile.query.join(User).filter(
+            or_(
+                User.name.ilike(f"%{search}%"),
+                User.email.ilike(f"%{search}%"),
+                StudentProfile.branch.ilike(f"%{search}%"),
+                StudentProfile.year.ilike(f"%{search}%"),
+            )
+        )
+        students = [{
+            "id": s.user.id,
+            "name": s.user.name,
+            "email" : s.user.email,
+            "branch": s.branch,
+            "year": s.year,
+            "cgpa" : s.cgpa,
+            "blacklisted": s.user.is_blacklisted,
+        } for s in query.all()]
+        return jsonify(students)
+
+    @app.route("/api/admin/companies/<int:company_id>/approve", methods=["POST"])
+    @jwt_required()
+    @role_required("admin")
+    def approve_company(current_user, company_id):
+        company = CompanyProfile.query.get_or_404(company_id)
+        company.approved = True
+        company.rejected = False
+        db.session.commit()
+        return jsonify({"message": "Company approved successfully"})
+
+    @app.route("/api/admin/companies/<int:company_id>/reject", methods=["POST"])
+    @jwt_required()
+    @role_required("admin")
+    def reject_company(current_user, company_id):
+        company = CompanyProfile.query.get_or_404(company_id)
+        company.approved = False
+        company.rejected = True
+        db.session.commit()
+        return jsonify({"message": "Company rejected successfully"})
+
+    @app.route("/api/admin/drives", methods=["GET"])
+    @jwt_required()
+    @role_required("admin")
+    def admin_drives(current_user):
+        search = request.args.get("search", "")
+        query = PlacementDrive.query.join(CompanyProfile).join(User).filter(
+            or_(
+                PlacementDrive.title.ilike(f"%{search}%"),
+                CompanyProfile.company_name.ilike(f"%{search}%"),
+                User.name.ilike(f"%{search}%"),
+            )
+        )
+        drives = [{
+            "id": d.id,
+            "title": d.title,
+            "company_name": d.company.company_name,
+            "status": d.status,
+            "deadline": d.application_deadline.isoformat(),
+            "created_by": d.company.user.name,
+        } for d in query.order_by(PlacementDrive.created_at.desc()).all()]
+        return jsonify(drives)
+
+    @app.route("/api/admin/drives/<int:drive_id>/approve", methods=["POST"])
+    @jwt_required()
+    @role_required("admin")
+    def approve_drive(current_user, drive_id):
+        drive = PlacementDrive.query.get_or_404(drive_id)
+        drive.status = "Approved"
+        db.session.commit()
+        return jsonify({"message": "Placement drive approved successfully"})
+
+    @app.route("/api/admin/drives/<int:drive_id>/reject", methods=["POST"])
+    @jwt_required()
+    @role_required("admin")
+    def reject_drive(current_user, drive_id):
+        drive = PlacementDrive.query.get_or_404(drive_id)
+        drive.status = "Rejected"
+        db.session.commit()
+        return jsonify({"message": "Placement drive rejected successfully"})
+
+    @app.route("/api/admin/users/<int:user_id>/toggle_blacklist", methods=["POST"])
+    @jwt_required()
+    @role_required("admin")
+    def toggle_blacklist(current_user, user_id):
+        user = User.query.get_or_404(user_id)
+        user.is_blacklisted = not user.is_blacklisted
+        db.session.commit()
+        return jsonify({"message": "Status updated successfully", "blacklisted": user.is_blacklisted})
+
+    @app.route("/api/admin/applications", methods=["GET"])
+    @jwt_required()
+    @role_required("admin")
+    def admin_applications(current_user):
+        apps = Application.query.order_by(Application.application_date.desc()).all()
+        return jsonify([{
+            "id": a.id,
+            "student_name": a.student.user.name,
+            "company_name": a.drive.company.company_name,
+            "drive_title": a.drive.title,
+            "status": a.status,
+            "date": a.application_date.isoformat(),
+        } for a in apps])
+
+    @app.route("/api/company/dashboard", methods=["GET"])
+    @jwt_required()
+    @role_required("company")
+    def company_dashboard(current_user):
+        profile = CompanyProfile.query.filter_by(user_id=current_user.id).first()
+        if not profile:
+            return jsonify({"message": "Company profile not found"}), 404
+
+        drives = PlacementDrive.query.filter_by(company_id=profile.id).all()
+        return jsonify({
+            "company_name": profile.company_name,
+            "approved": profile.approved,
+            "drives": [{
+                "id": d.id,
+                "title": d.title,
+                "status": d.status,
+                "applicants": len(d.applications),
+            } for d in drives],
+        })
+
+    @app.route("/api/company/drives", methods=["POST"])
+    @jwt_required()
+    @role_required("company")
+    def create_drive(current_user):
+        profile = CompanyProfile.query.filter_by(user_id=current_user.id).first()
+        if not profile or not profile.approved:
+            return jsonify({"message": "Company profile not approved"}), 403
+
+        data = request.json or {}
+        drive = PlacementDrive(
+            company_id=profile.id,
+            title=data.get("title"),
+            description=data.get("description", ""),
+            branch_eligibility=data.get("branch_eligibility", ""),
+            min_cgpa=float(data.get("min_cgpa", 0)),
+            year_eligibility=data.get("year_eligibility", ""),
+            application_deadline=datetime.strptime(data.get("application_deadline"), "%Y-%m-%d").date(),
+            status="Pending",
+        )
+        db.session.add(drive)
+        db.session.commit()
+        return jsonify({"message": "Placement drive created successfully"}), 201
+
+    @app.route("/api/company/drives/<int:drive_id>/applications", methods=["GET"])
+    @jwt_required()
+    @role_required("company")
+    def company_drive_applications(current_user, drive_id):
+        profile = CompanyProfile.query.filter_by(user_id=current_user.id).first()
+        if not profile or not profile.approved:
+            return jsonify({"message": "Company profile not approved"}), 403
+
+        drive = PlacementDrive.query.filter_by(id=drive_id, company_id=profile.id).first()
+        if not drive:
+            return jsonify({"message": "Drive not found"}), 404
+
+        return jsonify([{ 
+            "id": a.id,
+            "student_name": a.student.user.name,
+            "student_email": a.student.user.email,
+            "status": a.status,
+            "branch": a.student.branch,
+            "cgpa": a.student.cgpa,
+        } for a in drive.applications])
+
+    @app.route("/api/company/applications/<int:app_id>/update", methods=["POST"])
+    @jwt_required()
+    @role_required("company")
+    def update_application_status(current_user, app_id):
+        data = request.json or {}
+        app_obj = Application.query.get_or_404(app_id)
+        profile = CompanyProfile.query.filter_by(user_id=current_user.id).first()
+        if app_obj.drive.company_id != profile.id:
+            return jsonify({"message": "Unauthorized access"}), 403
+
+        app_obj.status = data.get("status", app_obj.status)
+        db.session.commit()
+        return jsonify({"message": "Application status updated successfully"})
+
+    @app.route("/api/student/dashboard", methods=["GET"])
+    @jwt_required()
+    @role_required("student")
+    def student_dashboard(current_user):
+        student = StudentProfile.query.filter_by(user_id=current_user.id).first()
+        if not student:
+            return jsonify({"drives": []})
+
+        eligible_drives = PlacementDrive.query.filter(
+            PlacementDrive.status == "Approved",
+            PlacementDrive.application_deadline >= date.today(),
+        ).all()
+
+        drives = []
+        for drive in eligible_drives:
+            branch_ok = not drive.branch_eligibility or student.branch in drive.branch_eligibility.split(",")
+            year_ok = not drive.year_eligibility or student.year in drive.year_eligibility.split(",")
+            if branch_ok and year_ok and student.cgpa >= drive.min_cgpa:
+                drives.append({
+                    "id": drive.id,
+                    "title": drive.title,
+                    "company_name": drive.company.company_name,
+                    "deadline": drive.application_deadline.isoformat(),
+                    "status": drive.status,
+                })
+        return jsonify({"drives": drives})
+
+    @app.route("/api/student/apply", methods=["POST"])
+    @jwt_required()
+    @role_required("student")
+    def apply_to_drive(current_user):
+        student = StudentProfile.query.filter_by(user_id=current_user.id).first()
+        data = request.json or {}
+        drive = PlacementDrive.query.get_or_404(data.get("drive_id"))
+
+        if drive.status != "Approved":
+            return jsonify({"message": "Drive is not open for applications"}), 400
+        if Application.query.filter_by(student_id=student.id, drive_id=drive.id).first():
+            return jsonify({"message": "Already applied to this drive"}), 400
+        if student.cgpa < drive.min_cgpa:
+            return jsonify({"message": "CGPA does not meet the minimum requirement"}), 400
+        if drive.branch_eligibility and student.branch not in drive.branch_eligibility.split(","):
+            return jsonify({"message": "Branch not eligible for this drive"}), 400
+        if drive.year_eligibility and student.year not in drive.year_eligibility.split(","):
+            return jsonify({"message": "Year not eligible for this drive"}), 400
+
+        application = Application(student_id=student.id, drive_id=drive.id)
+        db.session.add(application)
+        db.session.commit()
+        return jsonify({"message": "Applied to drive successfully"})
+
+    @app.route("/api/student/applications", methods=["GET"])
+    @jwt_required()
+    @role_required("student")
+    def student_applications(current_user):
+        student = StudentProfile.query.filter_by(user_id=current_user.id).first()
+        applications = Application.query.filter_by(student_id=student.id).order_by(Application.application_date.desc()).all()
+        return jsonify([{
+            "id": a.id,
+            "drive_title": a.drive.title,
+            "company_name": a.drive.company.company_name,
+            "status": a.status,
+            "application_date": a.application_date.isoformat(),
+        } for a in applications])
+
+    @app.route("/api/student/profile", methods=["GET", "PUT"])
+    @jwt_required()
+    @role_required("student")
+    def edit_profile(current_user):
+        student = StudentProfile.query.filter_by(user_id=current_user.id).first()
+        if request.method == "GET":
+            return jsonify({
+                "name": current_user.name,
+                "email": current_user.email,
+                "branch": student.branch,
+                "year": student.year,
+                "cgpa": student.cgpa,
+                "resume_url": student.resume_url,
+            })
+
+        data = request.json or {}
+        current_user.name = data.get("name", current_user.name)
+        student.branch = data.get("branch", student.branch)
+        student.year = data.get("year", student.year)
+        student.cgpa = float(data.get("cgpa", student.cgpa))
+        student.resume_url = data.get("resume_url", student.resume_url)
+        db.session.commit()
+        return jsonify({"message": "Profile updated successfully"})
+
+    @app.route("/api/drives/approved", methods=["GET"])
+    @cache.cached(timeout=120, query_string=True)
+    def approved_drives():
+        drives = PlacementDrive.query.filter_by(status="Approved").order_by(PlacementDrive.application_deadline.asc()).all()
+        return jsonify([{
+            "id": d.id,
+            "title": d.title,
+            "company_name": d.company.company_name,
+            "deadline": d.application_deadline.isoformat(),
+        } for d in drives])
+
+    return app
+
+
+if __name__ == "__main__":
+    app = create_app()
+    app.run(host="0.0.0.0", port=5001, debug=False, use_reloader=False)

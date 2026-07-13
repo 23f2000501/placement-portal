@@ -1,0 +1,103 @@
+import csv
+import os
+from datetime import date, timedelta
+
+from celery import Celery
+from flask_mail import Mail, Message
+
+from app import create_app
+from config import Config
+from models import Application, PlacementDrive, StudentProfile, User
+
+celery = Celery(__name__, broker=Config.REDIS_URL, backend=Config.REDIS_URL)
+celery.conf.update(result_backend=Config.REDIS_URL)
+app = create_app()
+mail = Mail(app)
+
+
+@celery.task
+def send_email(subject, recipients, body):
+    with app.app_context():
+        if not Config.MAIL_USERNAME or not Config.MAIL_PASSWORD:
+            return {"status": "mail configuration missing"}
+        msg = Message(subject, recipients=recipients)
+        msg.body = body
+        mail.send(msg)
+        return {"status": "sent"}
+
+
+@celery.task
+def daily_deadline_reminder():
+    with app.app_context():
+        tomorrow = date.today() + timedelta(days=1)
+        drives = PlacementDrive.query.filter(
+            PlacementDrive.application_deadline == tomorrow,
+            PlacementDrive.status == "Approved",
+        ).all()
+        students = StudentProfile.query.all()
+        recipients = [student.user.email for student in students]
+        if not recipients:
+            return {"status": "no students"}
+        body = f"Reminder: {len(drives)} drives have deadlines tomorrow."
+        return send_email.delay("Placement Drive Deadline Reminder", recipients, body)
+
+
+@celery.task
+def monthly_report():
+    with app.app_context():
+        start = date.today().replace(day=1) - timedelta(days=1)
+        start = start.replace(day=1)
+        end = date.today().replace(day=1) - timedelta(days=1)
+
+        drives = PlacementDrive.query.filter(
+            PlacementDrive.created_at >= start,
+            PlacementDrive.created_at <= end,
+        ).all()
+        applications = Application.query.filter(
+            Application.application_date >= start,
+            Application.application_date <= end,
+        ).all()
+        selected_count = Application.query.filter(
+            Application.application_date >= start,
+            Application.application_date <= end,
+            Application.status == "Selected",
+        ).count()
+
+        html = f"""
+        <h2>Placement Activity Report</h2>
+        <p>Period: {start.isoformat()} to {end.isoformat()}</p>
+        <ul>
+            <li>Total drives created: {len(drives)}</li>
+            <li>Total applications: {len(applications)}</li>
+            <li>Total students selected: {selected_count}</li>
+        </ul>
+        """
+        admin = User.query.filter_by(role="admin").first()
+        if admin:
+            return send_email.delay("Monthly Placement Report", [admin.email], html)
+        return {"status": "admin email missing"}
+
+
+@celery.task
+def export_application_history(student_id):
+    with app.app_context():
+        student = StudentProfile.query.get(student_id)
+        if not student:
+            return {"error": "student not found"}
+
+        applications = Application.query.filter_by(student_id=student.id).order_by(Application.application_date.desc()).all()
+        filename = f"student_{student_id}_applications.csv"
+        filepath = os.path.join(os.path.dirname(__file__), filename)
+
+        with open(filepath, mode="w", newline="") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["Student ID", "Company Name", "Drive Title", "Application Status", "Application Date"])
+            for entry in applications:
+                writer.writerow([
+                    student.id,
+                    entry.drive.company.company_name,
+                    entry.drive.title,
+                    entry.status,
+                    entry.application_date.isoformat(),
+                ])
+        return {"file_path": filepath, "message": "Export completed"}
