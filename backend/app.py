@@ -171,6 +171,9 @@ def create_app():
             return jsonify({"message": "Invalid email or password"}), 401
         if not user.is_active or user.is_blacklisted:
             return jsonify({"message": "Account blocked"}), 403
+        if user.role == "company":
+            if not user.company or not user.company.approved:
+                return jsonify({"message": "Company account not approved"}), 403
 
         token = create_access_token(identity=str(user.id), expires_delta=timedelta(hours=8))
         return jsonify({

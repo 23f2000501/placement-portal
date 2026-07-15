@@ -6,7 +6,8 @@
       <p class="sub">Manage your profile, review approved drives, and keep track of every application.</p>
     </header>
 
-    <div v-if="loading" class="note">
+    <div v-if="loading" class="note" role="status" aria-live="polite">
+      <span class="note-spinner" aria-hidden="true"></span>
       <p class="note-title">Pulling your placement board…</p>
     </div>
 
@@ -18,19 +19,19 @@
         </div>
 
         <div class="profile-summary">
-          <div>
+          <div class="summary-fact">
             <p class="summary-label">Name</p>
             <p class="summary-value">{{ profile?.name || '—' }}</p>
           </div>
-          <div>
+          <div class="summary-fact">
             <p class="summary-label">Branch</p>
             <p class="summary-value">{{ profile?.branch || '—' }}</p>
           </div>
-          <div>
+          <div class="summary-fact">
             <p class="summary-label">Year</p>
             <p class="summary-value">{{ profile?.year || '—' }}</p>
           </div>
-          <div>
+          <div class="summary-fact">
             <p class="summary-label">CGPA</p>
             <p class="summary-value">{{ profile?.cgpa || '—' }}</p>
           </div>
@@ -62,18 +63,21 @@
           <div class="field-row">
             <label class="field-group">
               <span class="field-label">CGPA</span>
-              <input v-model="form.cgpa" type="number" step="0.01" class="field" required />
+              <input v-model="form.cgpa" type="number" step="0.01" min="0" max="10" class="field" required />
             </label>
             <label class="field-group">
               <span class="field-label">Resume URL</span>
-              <input v-model="form.resume_url" type="url" class="field" />
+              <input v-model="form.resume_url" type="url" class="field" placeholder="https://…" />
             </label>
           </div>
 
-          <p v-if="profileMessage" class="status-message" :class="profileMessageType">{{ profileMessage }}</p>
-          <button class="btn-action" type="submit" :disabled="savingProfile">
-            {{ savingProfile ? 'Saving…' : 'Save profile' }}
-          </button>
+          <div class="form-footer">
+            <p v-if="profileMessage" class="status-message" :class="profileMessageType" role="alert">{{ profileMessage }}</p>
+            <button class="btn-action" type="submit" :disabled="savingProfile">
+              <span v-if="savingProfile" class="btn-spinner" aria-hidden="true"></span>
+              {{ savingProfile ? 'Saving…' : 'Save profile' }}
+            </button>
+          </div>
         </form>
       </section>
 
@@ -93,7 +97,7 @@
               <span class="summary-pill-label">Applications</span>
               <strong>{{ applications.length }}</strong>
             </div>
-            <div class="summary-pill">
+            <div class="summary-pill" :class="{ 'summary-pill--ready': profile?.name }">
               <span class="summary-pill-label">Profile Status</span>
               <strong>{{ profile?.name ? 'Ready' : 'Pending' }}</strong>
             </div>
@@ -106,19 +110,25 @@
             <p>These are the placement drives currently open for applications.</p>
           </div>
 
-          <div v-if="!availableDrives.length" class="empty-state">No available drives to apply for right now.</div>
+          <div v-if="!availableDrives.length" class="empty-state">
+            <p class="empty-state-title">No available drives right now</p>
+            <p class="empty-state-sub">Check back soon — new opportunities are posted regularly.</p>
+          </div>
           <div v-else class="list-stack">
             <div v-for="drive in availableDrives" :key="drive.id" class="list-item">
-              <div>
+              <div class="list-item-info">
                 <h4>{{ drive.title }}</h4>
-                <p><strong>Company:</strong> {{ drive.company_name }}</p>
-                <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
+                <div class="meta-row">
+                  <span><strong>Company:</strong> {{ drive.company_name }}</span>
+                  <span><strong>Deadline:</strong> {{ drive.deadline }}</span>
+                </div>
               </div>
               <button
                 class="btn-action"
                 @click="apply(drive.id)"
                 :disabled="applyingId === drive.id"
               >
+                <span v-if="applyingId === drive.id" class="btn-spinner" aria-hidden="true"></span>
                 {{ applyingId === drive.id ? 'Applying…' : 'Apply' }}
               </button>
             </div>
@@ -132,65 +142,89 @@
           </div>
           <div class="list-stack">
             <div v-for="drive in alreadyAppliedDrives" :key="drive.id" class="list-item applied-item">
-              <div>
+              <div class="list-item-info">
                 <h4>{{ drive.title }}</h4>
-                <p><strong>Company:</strong> {{ drive.company_name }}</p>
-                <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
+                <div class="meta-row">
+                  <span><strong>Company:</strong> {{ drive.company_name }}</span>
+                  <span><strong>Deadline:</strong> {{ drive.deadline }}</span>
+                </div>
               </div>
-              <button class="btn-action" disabled>Applied</button>
+              <span class="pill pill-applied">Applied</span>
             </div>
           </div>
         </section>
 
         <section class="panel-card">
-          <div class="panel-head">
-            <h3>Applications & Placement History</h3>
-            <p>Every submission you make is tracked here with its latest status.</p>
-            <button class="btn-action small" type="button" @click="exportApplications" :disabled="exporting">
-              {{ exporting ? 'Exporting…' : 'Export as CSV' }}
-            </button>
-            <button class="btn-action small secondary" type="button" @click="downloadApplications" :disabled="downloadLoading">
-              {{ downloadLoading ? 'Downloading…' : 'Download latest CSV' }}
-            </button>
+          <div class="panel-head panel-head-with-actions">
+            <div>
+              <h3>Applications & Placement History</h3>
+              <p>Every submission you make is tracked here with its latest status.</p>
+            </div>
+            <div class="panel-head-actions">
+              <button class="btn-secondary btn-small" type="button" @click="exportApplications" :disabled="exporting">
+                {{ exporting ? 'Exporting…' : 'Export as CSV' }}
+              </button>
+              <button class="btn-secondary btn-small" type="button" @click="downloadApplications" :disabled="downloadLoading">
+                {{ downloadLoading ? 'Downloading…' : 'Download latest CSV' }}
+              </button>
+            </div>
           </div>
 
-          <div v-if="!applications.length" class="empty-state">You have not applied to any drive yet.</div>
+          <div v-if="!applications.length" class="empty-state">
+            <p class="empty-state-title">No applications yet</p>
+            <p class="empty-state-sub">Apply to an approved drive above to get started.</p>
+          </div>
           <div v-else class="list-stack">
-            <div v-for="application in applications" :key="application.id" class="list-item">
-              <div>
-                <h4>{{ application.drive_title }}</h4>
-                <p><strong>Company:</strong> {{ application.company_name }}</p>
-                <p><strong>Status:</strong> {{ application.status }}</p>
-                <p><strong>Applied on:</strong> {{ displayDateTime(application.application_date) }}</p>
+            <div v-for="application in applications" :key="application.id" class="list-item application-item">
+              <div class="list-item-info">
+                <div class="application-item-head">
+                  <h4>{{ application.drive_title }}</h4>
+                  <span class="status-badge" :class="statusBadgeClass(application.status)">{{ application.status }}</span>
+                </div>
+                <div class="meta-row">
+                  <span><strong>Company:</strong> {{ application.company_name }}</span>
+                  <span><strong>Applied on:</strong> {{ displayDateTime(application.application_date) }}</span>
+                </div>
+
                 <div v-if="application.interview" class="interview-card">
-                  <p><strong>Interview status:</strong> {{ application.interview.status || 'Pending' }}</p>
-                  <p v-if="application.interview.proposed_slots?.length"><strong>Company slots:</strong> {{ application.interview.proposed_slots.join(' • ') }}</p>
-                  <p v-if="application.interview.selected_slot"><strong>Selected slot:</strong> {{ displayDateTime(application.interview.selected_slot) }}</p>
-                  <p v-if="application.interview.notes"><strong>Notes:</strong> {{ application.interview.notes }}</p>
+                  <div class="interview-card-head">
+                    <span class="interview-label">Interview</span>
+                    <span class="status-badge" :class="statusBadgeClass(application.interview.status)">{{ application.interview.status || 'Pending' }}</span>
+                  </div>
+                  <p v-if="application.interview.proposed_slots?.length" class="interview-line">
+                    <strong>Company slots:</strong> {{ application.interview.proposed_slots.join(' • ') }}
+                  </p>
+                  <p v-if="application.interview.selected_slot" class="interview-line">
+                    <strong>Selected slot:</strong> {{ displayDateTime(application.interview.selected_slot) }}
+                  </p>
+                  <p v-if="application.interview.notes" class="interview-line">
+                    <strong>Notes:</strong> {{ application.interview.notes }}
+                  </p>
+
                   <div class="interview-actions">
                     <template v-if="application.interview.proposed_slots?.length && application.interview.status !== 'Confirmed'">
-                      <select v-model="studentSelectedSlot[application.id]" class="field field-sm">
+                      <select v-model="studentSelectedSlot[application.id]" class="field field-sm" aria-label="Choose an interview slot">
                         <option value="">Choose a slot</option>
                         <option v-for="slot in application.interview.proposed_slots" :key="slot" :value="slot">{{ slot }}</option>
                       </select>
-                      <button class="btn-action" type="button" @click="confirmInterview(application.id)">Confirm</button>
-                      <button class="btn-action secondary" type="button" @click="requestReschedule(application.id)">Request reschedule</button>
+                      <button class="btn-action btn-small" type="button" @click="confirmInterview(application.id)">Confirm</button>
+                      <button class="btn-secondary btn-small" type="button" @click="requestReschedule(application.id)">Request reschedule</button>
                     </template>
                     <template v-else-if="application.interview.status === 'Confirmed'">
                       <template v-if="!studentRescheduleOpen[application.id]">
-                        <button class="btn-action" type="button" @click="toggleReschedule(application.id)">Change slot</button>
+                        <button class="btn-secondary btn-small" type="button" @click="toggleReschedule(application.id)">Change slot</button>
                       </template>
                       <template v-else>
-                        <button class="btn-action" type="button" @click="submitChangeSlot(application.id)">Submit change</button>
-                        <button class="btn-action secondary" type="button" @click="toggleReschedule(application.id)">Cancel</button>
+                        <button class="btn-action btn-small" type="button" @click="submitChangeSlot(application.id)">Submit change</button>
+                        <button class="btn-secondary btn-small" type="button" @click="toggleReschedule(application.id)">Cancel</button>
                       </template>
                     </template>
                   </div>
 
-                  <div class="field-group" v-if="(application.interview.status !== 'Confirmed') || studentRescheduleOpen[application.id]">
+                  <label class="field-group" v-if="(application.interview.status !== 'Confirmed') || studentRescheduleOpen[application.id]">
                     <span class="field-label">If unavailable, propose alternate slot(s)</span>
                     <textarea v-model="studentProposedSlots[application.id]" class="field field-area" rows="3" placeholder="Enter preferred slots, one per line"></textarea>
-                  </div>
+                  </label>
                 </div>
               </div>
             </div>
@@ -287,6 +321,16 @@ export default {
     },
     toggleReschedule(applicationId) {
       this.studentRescheduleOpen[applicationId] = !this.studentRescheduleOpen[applicationId];
+    },
+    statusBadgeClass(status) {
+      const key = (status || "").toLowerCase();
+      if (key.includes("pending")) return "status--pending";
+      if (key.includes("shortlist")) return "status--shortlisted";
+      if (key.includes("interview")) return "status--interview";
+      if (key.includes("confirm")) return "status--confirmed";
+      if (key.includes("select")) return "status--selected";
+      if (key.includes("reject")) return "status--rejected";
+      return "";
     },
     displayDateTime(value) {
       if (!value) return '';
@@ -434,6 +478,7 @@ export default {
   --paper: #efedf7;
   --accent: #ff6b4a;
   --teal: #2ec4b6;
+  --amber: #ffc857;
   min-height: 100%;
   background: var(--ink);
   background-image:
@@ -446,7 +491,7 @@ export default {
 
 .board-head {
   max-width: 920px;
-  margin: 0 auto 2.5rem;
+  margin: 0 auto 2.25rem;
 }
 
 .eyebrow {
@@ -454,7 +499,7 @@ export default {
   font-size: 0.8rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #ffc857;
+  color: var(--amber);
   margin: 0 0 0.5rem;
 }
 
@@ -462,14 +507,17 @@ export default {
   font-family: "Space Grotesk", sans-serif;
   font-weight: 700;
   font-size: clamp(2rem, 4vw, 2.75rem);
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.5rem;
   letter-spacing: -0.01em;
+  line-height: 1.15;
 }
 
 .sub {
   margin: 0;
-  color: rgba(239, 237, 247, 0.6);
+  color: rgba(239, 237, 247, 0.62);
   font-size: 0.95rem;
+  max-width: 56ch;
+  line-height: 1.5;
 }
 
 .note {
@@ -481,6 +529,19 @@ export default {
   padding: 2.25rem 2rem;
   text-align: center;
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.note-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid rgba(20, 19, 43, 0.14);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
 }
 
 .note-title {
@@ -501,28 +562,46 @@ export default {
   background: rgba(239, 237, 247, 0.96);
   color: var(--ink);
   border-radius: 16px;
-  padding: 1.35rem 1.4rem;
+  padding: 1.6rem 1.75rem;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
 }
 
 .panel-head {
-  margin-bottom: 1rem;
+  margin-bottom: 1.4rem;
 }
 
 .panel-head h3 {
-  margin: 0 0 0.3rem;
+  margin: 0 0 0.35rem;
   font-family: "Space Grotesk", sans-serif;
-  font-size: 1.1rem;
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
 }
 
 .panel-head p {
   margin: 0;
   color: rgba(20, 19, 43, 0.65);
   font-size: 0.92rem;
+  line-height: 1.5;
+  max-width: 60ch;
+}
+
+.panel-head-with-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.panel-head-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .overview-card {
-  background: linear-gradient(135deg, rgba(255, 107, 74, 0.14), rgba(255, 200, 87, 0.16));
+  /* background: linear-gradient(135deg, rgba(232, 229, 229, 0.14), rgba(236, 241, 238, 0.16)); */
   border: 1px solid rgba(255, 107, 74, 0.22);
 }
 
@@ -534,40 +613,50 @@ export default {
 .summary-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0.8rem;
+  gap: 0.9rem;
 }
 
 .summary-pill {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  padding: 0.95rem 1rem;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
   border-radius: 12px;
   background: rgba(20, 19, 43, 0.06);
 }
 
+.summary-pill--ready strong {
+  color: #17766d;
+}
+
 .summary-pill-label {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(20, 19, 43, 0.6);
 }
 
 .summary-pill strong {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   color: var(--ink);
 }
 
 .profile-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  gap: 0.8rem;
+  margin-bottom: 1.4rem;
+}
+
+.summary-fact {
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: rgba(20, 19, 43, 0.05);
 }
 
 .summary-label {
-  margin: 0 0 0.25rem;
-  font-size: 0.75rem;
+  margin: 0 0 0.3rem;
+  font-size: 0.74rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(20, 19, 43, 0.55);
@@ -580,19 +669,19 @@ export default {
 
 .profile-form {
   display: grid;
-  gap: 0.8rem;
+  gap: 1.1rem;
 }
 
 .field-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.8rem;
+  gap: 1rem;
 }
 
 .field-group {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 .field-label {
@@ -603,24 +692,49 @@ export default {
 
 .field {
   width: 100%;
-  padding: 0.65rem 0.8rem;
+  padding: 0.65rem 0.85rem;
   border: 1.5px solid rgba(20, 19, 43, 0.14);
   border-radius: 8px;
   font-family: "Inter", sans-serif;
   font-size: 0.92rem;
   background: #fff;
   color: var(--ink);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.field:focus {
+.field:hover:not(:disabled) {
+  border-color: rgba(20, 19, 43, 0.24);
+}
+
+.field:focus,
+.field:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255, 107, 74, 0.14);
+  box-shadow: 0 0 0 3px rgba(255, 107, 74, 0.16);
 }
 
 .field:disabled {
   background: rgba(20, 19, 43, 0.06);
   color: rgba(20, 19, 43, 0.6);
+  cursor: not-allowed;
+}
+
+.field-area {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.field-sm {
+  min-width: 190px;
+  max-width: 260px;
+}
+
+.form-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .status-message {
@@ -641,18 +755,31 @@ export default {
   justify-self: start;
   border: none;
   border-radius: 8px;
-  padding: 0.65rem 1rem;
+  padding: 0.7rem 1.1rem;
   font-family: "Space Grotesk", sans-serif;
   font-weight: 700;
+  font-size: 0.9rem;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .btn-action:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 18px rgba(255, 107, 74, 0.24);
+  box-shadow: 0 8px 18px rgba(255, 107, 74, 0.28);
+}
+
+.btn-action:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .btn-action:disabled {
@@ -660,9 +787,51 @@ export default {
   cursor: not-allowed;
 }
 
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  animation: spin 0.7s linear infinite;
+}
+
+.btn-secondary {
+  border: 1.5px solid rgba(20, 19, 43, 0.16);
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 0.88rem;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(20, 19, 43, 0.06);
+  border-color: rgba(20, 19, 43, 0.28);
+}
+
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-small {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.82rem;
+}
+
 .list-stack {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.85rem;
 }
 
 .list-item {
@@ -670,31 +839,205 @@ export default {
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
-  padding: 0.95rem 1rem;
+  padding: 1.05rem 1.15rem;
   border-radius: 12px;
   background: rgba(20, 19, 43, 0.04);
+  transition: box-shadow 0.15s ease;
+}
+
+.list-item:hover {
+  box-shadow: 0 6px 16px rgba(20, 19, 43, 0.08);
+}
+
+.list-item-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .list-item h4 {
-  margin: 0 0 0.3rem;
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
 }
 
-.list-item p {
-  margin: 0.1rem 0;
-  color: rgba(20, 19, 43, 0.7);
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  font-size: 0.88rem;
+  color: rgba(20, 19, 43, 0.68);
+}
+
+.applied-item {
+  background: rgba(20, 19, 43, 0.025);
+}
+
+.applied-item h4 {
+  color: rgba(20, 19, 43, 0.75);
+}
+
+.pill {
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pill-applied {
+  background: rgba(46, 196, 182, 0.16);
+  color: #17766d;
+}
+
+.application-item {
+  align-items: stretch;
+}
+
+.application-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
+.application-item-head h4 {
+  margin: 0;
+}
+
+.status-badge {
+  padding: 0.32rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: rgba(46, 196, 182, 0.16);
+  color: #17766d;
+}
+
+.status--pending {
+  background: rgba(255, 200, 87, 0.22);
+  color: #8a6600;
+}
+
+.status--shortlisted {
+  background: rgba(46, 196, 182, 0.16);
+  color: #17766d;
+}
+
+.status--interview {
+  background: rgba(255, 107, 74, 0.14);
+  color: #b8391c;
+}
+
+.status--confirmed {
+  background: rgba(46, 196, 182, 0.22);
+  color: #135e57;
+}
+
+.status--selected {
+  background: rgba(23, 118, 109, 0.9);
+  color: #fff;
+}
+
+.status--rejected {
+  background: rgba(184, 57, 28, 0.12);
+  color: #b8391c;
+}
+
+.interview-card {
+  margin-top: 0.9rem;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  border: 1px solid rgba(20, 19, 43, 0.08);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.interview-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.interview-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(20, 19, 43, 0.55);
+}
+
+.interview-line {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(20, 19, 43, 0.75);
+}
+
+.interview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 0.2rem;
 }
 
 .empty-state {
-  padding: 1rem;
+  padding: 1.6rem 1.2rem;
   border-radius: 10px;
-  background: rgba(20, 19, 43, 0.04);
+  background: rgba(20, 19, 43, 0.03);
+  border: 1px dashed rgba(20, 19, 43, 0.14);
   color: rgba(20, 19, 43, 0.7);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.empty-state-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty-state-sub {
+  margin: 0;
+  font-size: 0.88rem;
+  color: rgba(20, 19, 43, 0.6);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 720px) {
+  .board {
+    padding: 2.25rem 1.1rem 3rem;
+  }
+
+  .panel-card {
+    padding: 1.25rem 1.1rem;
+  }
+
   .list-item {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .panel-head-with-actions {
+    flex-direction: column;
+  }
+
+  .panel-head-actions {
+    width: 100%;
+  }
+
+  .panel-head-actions .btn-secondary {
+    flex: 1;
   }
 }
 </style>
