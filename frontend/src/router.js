@@ -16,6 +16,7 @@ const routes = [
   { path: "/admin", component: AdminDashboard, meta: { requiresAuth: true, allowedRoles: ["admin"] } },
   { path: "/company", component: CompanyDashboard, meta: { requiresAuth: true, allowedRoles: ["company"] } },
   { path: "/student", component: StudentDashboard, meta: { requiresAuth: true, allowedRoles: ["student"] } },
+  { path: "/student/profile", component: StudentDashboard, meta: { requiresAuth: true, allowedRoles: ["student"] } },
   { path: "/drives", component: DriveList, meta: { requiresAuth: true, allowedRoles: ["student", "company", "admin"] } },
   { path: "/applications", component: ApplicationList, meta: { requiresAuth: true, allowedRoles: ["student", "company", "admin"] } }
 ];

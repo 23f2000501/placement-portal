@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta
 from flask import Flask, jsonify, request
 from flask_caching import Cache
@@ -6,7 +7,7 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required
 from sqlalchemy import or_
 
 from config import Config
-from models import Application, CompanyProfile, PlacementDrive, StudentProfile, User, bcrypt, db
+from models import Application, CompanyProfile, InterviewSchedule, PlacementDrive, StudentProfile, User, bcrypt, db
 from utils import role_required
 
 
@@ -16,16 +17,21 @@ def create_app():
 
     CORS(
         app,
-        resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}},
+        resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"]}},
         supports_credentials=True,
         allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     )
 
+    @app.before_request
+    def handle_options():
+        if request.method == "OPTIONS":
+            return app.make_default_options_response()
+
     @app.after_request
     def add_cors_headers(response):
         origin = request.headers.get("Origin")
-        allowed_origins = {"http://localhost:5173", "http://127.0.0.1:5173"}
+        allowed_origins = {"http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"}
         if origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -41,6 +47,40 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+
+        def normalize_text(value):
+            return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+        def is_branch_match(student_branch, eligibility):
+            if not eligibility:
+                return True
+            allowed_values = [normalize_text(item) for item in eligibility.split(",") if normalize_text(item)]
+            if not allowed_values:
+                return True
+            normalized_student = normalize_text(student_branch)
+            if any(item in {"all", "any", "all branches", "any branch"} for item in allowed_values):
+                return True
+            if any(item in {"btech", "b tech", "bachelors of technology", "engineering", "be", "b e"} for item in allowed_values):
+                return True
+            return normalized_student in allowed_values
+
+        def is_year_match(student_year, eligibility):
+            if not eligibility:
+                return True
+            normalized_student = normalize_text(student_year)
+            allowed_values = [normalize_text(item) for item in eligibility.split(",") if normalize_text(item)]
+            if not allowed_values:
+                return True
+            student_num = re.search(r"\d+", normalized_student)
+            for value in allowed_values:
+                allowed_num = re.search(r"\d+", value)
+                if student_num and allowed_num:
+                    if int(student_num.group(0)) >= int(allowed_num.group(0)):
+                        return True
+                if normalized_student == value:
+                    return True
+            return False
+
         admin = User.query.filter_by(email="admin@institute.edu").first()
         if not admin:
             admin = User(name="Institute Admin", email="admin@institute.edu", role="admin", is_active=True)
@@ -345,6 +385,14 @@ def create_app():
             "status": a.status,
             "branch": a.student.branch,
             "cgpa": a.student.cgpa,
+            "interview": {
+                "id": a.interview_schedule.id if a.interview_schedule else None,
+                "status": a.interview_schedule.status if a.interview_schedule else None,
+                "proposed_slots": a.interview_schedule.proposed_slots.split("\n") if a.interview_schedule and a.interview_schedule.proposed_slots else [],
+                "selected_slot": a.interview_schedule.selected_slot if a.interview_schedule else None,
+                "student_proposed_slots": a.interview_schedule.student_proposed_slots.split("\n") if a.interview_schedule and a.interview_schedule.student_proposed_slots else [],
+                "notes": a.interview_schedule.notes if a.interview_schedule else None,
+            } if a.interview_schedule else None,
         } for a in drive.applications])
 
     @app.route("/api/company/applications/<int:app_id>/update", methods=["POST"])
@@ -358,8 +406,59 @@ def create_app():
             return jsonify({"message": "Unauthorized access"}), 403
 
         app_obj.status = data.get("status", app_obj.status)
+        if data.get("status") == "Interview Scheduled" and not app_obj.interview_schedule:
+            schedule = InterviewSchedule(application_id=app_obj.id, status="Pending")
+            db.session.add(schedule)
         db.session.commit()
         return jsonify({"message": "Application status updated successfully"})
+
+    @app.route("/api/company/applications/<int:app_id>/schedule", methods=["POST"])
+    @jwt_required()
+    @role_required("company")
+    def schedule_interview(current_user, app_id):
+        data = request.json or {}
+        app_obj = Application.query.get_or_404(app_id)
+        profile = CompanyProfile.query.filter_by(user_id=current_user.id).first()
+        if app_obj.drive.company_id != profile.id:
+            return jsonify({"message": "Unauthorized access"}), 403
+
+        slots = [slot.strip() for slot in data.get("proposed_slots", []) if slot and slot.strip()]
+        schedule = app_obj.interview_schedule or InterviewSchedule(application_id=app_obj.id)
+        schedule.proposed_slots = "\n".join(slots)
+        # Companies should only propose slots. The candidate chooses and confirms the selected slot.
+        # Ignore any selected_slot sent by the company to prevent company-side selection.
+        schedule.status = data.get("status", "Slots Proposed")
+        schedule.notes = data.get("notes", schedule.notes)
+        db.session.add(schedule)
+        app_obj.status = "Interview Scheduled"
+        db.session.commit()
+        return jsonify({"message": "Interview schedule updated successfully"})
+
+    @app.route("/api/student/applications/<int:app_id>/respond", methods=["POST"])
+    @jwt_required()
+    @role_required("student")
+    def respond_to_interview(current_user, app_id):
+        data = request.json or {}
+        app_obj = Application.query.get_or_404(app_id)
+        student = StudentProfile.query.filter_by(user_id=current_user.id).first()
+        if app_obj.student_id != student.id:
+            return jsonify({"message": "Unauthorized access"}), 403
+
+        schedule = app_obj.interview_schedule or InterviewSchedule(application_id=app_obj.id)
+        if data.get("selected_slot"):
+            schedule.selected_slot = data.get("selected_slot")
+            schedule.status = "Confirmed"
+            # mark the application as confirmed so company and student see the update
+            app_obj.status = "Confirmed"
+        elif data.get("student_proposed_slots"):
+            slots = [slot.strip() for slot in data.get("student_proposed_slots", []) if slot and slot.strip()]
+            schedule.student_proposed_slots = "\n".join(slots)
+            schedule.status = "Reschedule Requested"
+        else:
+            schedule.status = "Pending"
+        db.session.add(schedule)
+        db.session.commit()
+        return jsonify({"message": "Interview response recorded"})
 
     @app.route("/api/student/dashboard", methods=["GET"])
     @jwt_required()
@@ -376,8 +475,8 @@ def create_app():
 
         drives = []
         for drive in eligible_drives:
-            branch_ok = not drive.branch_eligibility or student.branch in drive.branch_eligibility.split(",")
-            year_ok = not drive.year_eligibility or student.year in drive.year_eligibility.split(",")
+            branch_ok = is_branch_match(student.branch, drive.branch_eligibility)
+            year_ok = is_year_match(student.year, drive.year_eligibility)
             if branch_ok and year_ok and student.cgpa >= drive.min_cgpa:
                 drives.append({
                     "id": drive.id,
@@ -402,9 +501,9 @@ def create_app():
             return jsonify({"message": "Already applied to this drive"}), 400
         if student.cgpa < drive.min_cgpa:
             return jsonify({"message": "CGPA does not meet the minimum requirement"}), 400
-        if drive.branch_eligibility and student.branch not in drive.branch_eligibility.split(","):
+        if not is_branch_match(student.branch, drive.branch_eligibility):
             return jsonify({"message": "Branch not eligible for this drive"}), 400
-        if drive.year_eligibility and student.year not in drive.year_eligibility.split(","):
+        if not is_year_match(student.year, drive.year_eligibility):
             return jsonify({"message": "Year not eligible for this drive"}), 400
 
         application = Application(student_id=student.id, drive_id=drive.id)
@@ -424,6 +523,14 @@ def create_app():
             "company_name": a.drive.company.company_name,
             "status": a.status,
             "application_date": a.application_date.isoformat(),
+            "interview": {
+                "id": a.interview_schedule.id if a.interview_schedule else None,
+                "status": a.interview_schedule.status if a.interview_schedule else None,
+                "proposed_slots": a.interview_schedule.proposed_slots.split("\n") if a.interview_schedule and a.interview_schedule.proposed_slots else [],
+                "selected_slot": a.interview_schedule.selected_slot if a.interview_schedule else None,
+                "student_proposed_slots": a.interview_schedule.student_proposed_slots.split("\n") if a.interview_schedule and a.interview_schedule.student_proposed_slots else [],
+                "notes": a.interview_schedule.notes if a.interview_schedule else None,
+            } if a.interview_schedule else None,
         } for a in applications])
 
     @app.route("/api/student/profile", methods=["GET", "PUT"])

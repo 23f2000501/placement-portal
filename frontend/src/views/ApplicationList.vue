@@ -3,23 +3,52 @@
     <header class="board-head">
       <p class="eyebrow">Placement Cell // Control Room</p>
       <h2 class="headline">Applications</h2>
-      <p class="sub">View application activity and status here.</p>
+      <p class="sub">Track every application you make and review the current status.</p>
     </header>
 
-    <div class="note">
-      <span class="note-dot"></span>
-      <div class="note-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"/>
-          <rect x="8" y="2" width="8" height="4" rx="1"/>
-          <path d="M8 12h8M8 16h5"/>
-        </svg>
-      </div>
+    <div v-if="loading" class="note">
+      <p class="note-title">Fetching your applications…</p>
+    </div>
+
+    <div v-else-if="!applications.length" class="note">
       <p class="note-title">Nothing pinned up yet</p>
       <p class="note-text">Once applications start coming in, they'll show up here with their status.</p>
     </div>
+
+    <div v-else class="application-grid">
+      <div v-for="application in applications" :key="application.id" class="application-card">
+        <div>
+          <h3>{{ application.drive_title }}</h3>
+          <p><strong>Company:</strong> {{ application.company_name }}</p>
+          <p><strong>Status:</strong> {{ application.status }}</p>
+          <p><strong>Applied on:</strong> {{ application.application_date }}</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
+
+<script>
+import api from "../services/api";
+
+export default {
+  data() {
+    return {
+      applications: [],
+      loading: true
+    };
+  },
+  async mounted() {
+    this.loading = true;
+    try {
+      const response = await api.get("/student/applications");
+      this.applications = response.data || [];
+    } finally {
+      this.loading = false;
+    }
+  }
+};
+</script>
 
 <style scoped>
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap");
@@ -39,9 +68,8 @@
 }
 
 .board-head {
-  max-width: 640px;
-  margin: 0 auto 2.75rem;
-  text-align: left;
+  max-width: 760px;
+  margin: 0 auto 2.25rem;
 }
 
 .eyebrow {
@@ -68,53 +96,51 @@
 }
 
 .note {
-  position: relative;
-  max-width: 420px;
+  max-width: 460px;
   margin: 0 auto;
   background: var(--paper);
   color: var(--ink);
-  border-radius: 10px;
-  padding: 2.25rem 2rem;
+  border-radius: 12px;
+  padding: 2rem;
   text-align: center;
-  transform: rotate(-1.5deg);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
-}
-
-.note-dot {
-  position: absolute;
-  top: -9px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
-}
-
-.note-icon {
-  width: 38px;
-  height: 38px;
-  margin: 0 auto 1rem;
-  color: var(--accent);
-}
-
-.note-icon svg {
-  width: 100%;
-  height: 100%;
 }
 
 .note-title {
   font-family: "Space Grotesk", sans-serif;
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   margin: 0 0 0.4rem;
 }
 
 .note-text {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   color: rgba(20, 19, 43, 0.65);
-  line-height: 1.5;
+}
+
+.application-grid {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.application-card {
+  padding: 1rem 1.1rem;
+  border-radius: 14px;
+  background: rgba(239, 237, 247, 0.95);
+  color: var(--ink);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
+}
+
+.application-card h3 {
+  margin: 0 0 0.35rem;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.application-card p {
+  margin: 0.2rem 0;
+  color: rgba(20, 19, 43, 0.7);
 }
 </style>

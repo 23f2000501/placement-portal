@@ -7,11 +7,13 @@
     </header>
 
     <div class="pin-row">
-      <div
+      <button
+        type="button"
         class="pin-card"
         v-for="(item, i) in cards"
         :key="item.title"
         :style="{ '--tilt': tilts[i] + 'deg', '--accent': item.color }"
+        @click="goToSection(item.section)"
       >
         <span class="pin-dot"></span>
         <div class="pin-icon" v-html="item.icon"></div>
@@ -20,31 +22,10 @@
           <span v-if="loading">···</span>
           <span v-else>{{ item.value }}</span>
         </p>
-      </div>
+      </button>
     </div>
 
     <section class="panel">
-      <div class="panel-head">
-        <h3>Admin Controls</h3>
-        <p>Search, review, and manage placement portal users.</p>
-      </div>
-
-      <div class="tab-row" role="tablist" aria-label="Admin sections">
-        <button class="tab-btn" :class="{ active: activeSection === 'companies' }" @click="activeSection = 'companies'">
-          Companies
-        </button>
-        <button class="tab-btn" :class="{ active: activeSection === 'drives' }" @click="activeSection = 'drives'">
-          Placement Drives
-        </button>
-        <button class="tab-btn" :class="{ active: activeSection === 'students' }" @click="activeSection = 'students'">
-          Students
-        </button>
-      </div>
-
-      <div class="mb-3 mt-3">
-        <input v-model="searchTerm" class="form-control" :placeholder="searchPlaceholder" @input="loadAdminData" />
-      </div>
-
       <div v-if="activeSection === 'companies'">
         <div class="panel-head mt-2">
           <div class="section-title-row">
@@ -52,49 +33,100 @@
               <h3>Company Registry</h3>
               <p>Track every company at a glance and review their approval status.</p>
             </div>
-            <span class="pill">{{ stats.total_companies || 0 }} total companies</span>
           </div>
         </div>
 
         <div v-if="loadingCompanies" class="muted">Loading companies…</div>
         <div v-else class="company-dashboard">
-          <div class="summary-grid">
-            <div class="summary-card pending">
+          <div class="summary-grid sticky-shell">
+            <button
+              class="summary-card pending"
+              :class="{ active: activeCompanyTab === 'pending' }"
+              @click="activeCompanyTab = 'pending'"
+            >
               <p class="summary-label">Pending</p>
               <p class="summary-value">{{ pendingCompanies.length }}</p>
-            </div>
-            <div class="summary-card approved">
+            </button>
+            <button
+              class="summary-card approved"
+              :class="{ active: activeCompanyTab === 'approved' }"
+              @click="activeCompanyTab = 'approved'"
+            >
               <p class="summary-label">Approved</p>
               <p class="summary-value">{{ approvedCompanies.length }}</p>
-            </div>
-            <div class="summary-card rejected">
+            </button>
+            <button
+              class="summary-card rejected"
+              :class="{ active: activeCompanyTab === 'rejected' }"
+              @click="activeCompanyTab = 'rejected'"
+            >
               <p class="summary-label">Rejected</p>
               <p class="summary-value">{{ rejectedCompanies.length }}</p>
-            </div>
+            </button>
           </div>
 
-          <div v-for="group in companyGroups" :key="group.key" class="status-group" :class="group.key">
+          <div v-if="activeCompanyTab === 'pending'" class="status-group pending content-shell">
             <div class="group-head">
-              <h4>{{ group.title }}</h4>
-              <span class="group-badge">{{ group.items.length }}</span>
+              <h4>Pending Companies</h4>
+              <span class="group-badge">{{ pendingCompanies.length }}</span>
             </div>
 
-            <div v-if="!group.items.length" class="empty-state">
-              No {{ group.key }} companies right now.
-            </div>
+            <div v-if="!pendingCompanies.length" class="empty-state">No pending companies right now.</div>
             <div v-else class="company-list">
-              <div v-for="company in group.items" :key="company.id" class="company-card" :class="group.key">
+              <div v-for="company in pendingCompanies" :key="company.id" class="company-card pending">
                 <div>
                   <h4>{{ company.company_name }}</h4>
                   <p><strong>Contact:</strong> {{ company.hr_contact }}</p>
                   <p><strong>Email:</strong> {{ company.email }}</p>
                   <p><strong>Website:</strong> {{ company.website || '—' }}</p>
                   <p><strong>Description:</strong> {{ company.description || '—' }}</p>
-                  <p><strong>Status:</strong> {{ group.title }}</p>
+                  <p><strong>Status:</strong> Pending</p>
                 </div>
-                <div class="actions" v-if="group.key === 'pending'">
+                <div class="actions">
                   <button class="btn approve" @click="handleAction(company.id, 'approve')">Approve</button>
                   <button class="btn reject" @click="handleAction(company.id, 'reject')">Reject</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="activeCompanyTab === 'approved'" class="status-group approved content-shell">
+            <div class="group-head">
+              <h4>Approved Companies</h4>
+              <span class="group-badge">{{ approvedCompanies.length }}</span>
+            </div>
+
+            <div v-if="!approvedCompanies.length" class="empty-state">No approved companies right now.</div>
+            <div v-else class="company-list">
+              <div v-for="company in approvedCompanies" :key="company.id" class="company-card approved">
+                <div>
+                  <h4>{{ company.company_name }}</h4>
+                  <p><strong>Contact:</strong> {{ company.hr_contact }}</p>
+                  <p><strong>Email:</strong> {{ company.email }}</p>
+                  <p><strong>Website:</strong> {{ company.website || '—' }}</p>
+                  <p><strong>Description:</strong> {{ company.description || '—' }}</p>
+                  <p><strong>Status:</strong> Approved</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="status-group rejected content-shell">
+            <div class="group-head">
+              <h4>Rejected Companies</h4>
+              <span class="group-badge">{{ rejectedCompanies.length }}</span>
+            </div>
+
+            <div v-if="!rejectedCompanies.length" class="empty-state">No rejected companies right now.</div>
+            <div v-else class="company-list">
+              <div v-for="company in rejectedCompanies" :key="company.id" class="company-card rejected">
+                <div>
+                  <h4>{{ company.company_name }}</h4>
+                  <p><strong>Contact:</strong> {{ company.hr_contact }}</p>
+                  <p><strong>Email:</strong> {{ company.email }}</p>
+                  <p><strong>Website:</strong> {{ company.website || '—' }}</p>
+                  <p><strong>Description:</strong> {{ company.description || '—' }}</p>
+                  <p><strong>Status:</strong> Rejected</p>
                 </div>
               </div>
             </div>
@@ -104,23 +136,101 @@
 
       <div v-else-if="activeSection === 'drives'">
         <div class="panel-head mt-2">
-          <h3>Drive Approval Queue</h3>
-          <p>Review placement drives created by companies.</p>
+          <div class="section-title-row">
+            <div>
+              <h3>Drive Registry</h3>
+              <p>Review every placement drive and switch between its approval states.</p>
+            </div>
+          </div>
         </div>
 
         <div v-if="loadingDrives" class="muted">Loading drives…</div>
-        <div v-else-if="!drives.length" class="muted">No drives to review.</div>
-        <div v-else class="company-list">
-          <div v-for="drive in drives" :key="drive.id" class="company-card">
-            <div>
-              <h4>{{ drive.title }}</h4>
-              <p><strong>Company:</strong> {{ drive.company_name }}</p>
-              <p><strong>Status:</strong> {{ drive.status }}</p>
-              <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
+        <div v-else class="company-dashboard">
+          <div class="summary-grid sticky-shell">
+            <button
+              class="summary-card pending"
+              :class="{ active: activeDriveTab === 'pending' }"
+              @click="activeDriveTab = 'pending'"
+            >
+              <p class="summary-label">Pending</p>
+              <p class="summary-value">{{ pendingDrives.length }}</p>
+            </button>
+            <button
+              class="summary-card approved"
+              :class="{ active: activeDriveTab === 'approved' }"
+              @click="activeDriveTab = 'approved'"
+            >
+              <p class="summary-label">Approved</p>
+              <p class="summary-value">{{ approvedDrives.length }}</p>
+            </button>
+            <button
+              class="summary-card rejected"
+              :class="{ active: activeDriveTab === 'rejected' }"
+              @click="activeDriveTab = 'rejected'"
+            >
+              <p class="summary-label">Rejected</p>
+              <p class="summary-value">{{ rejectedDrives.length }}</p>
+            </button>
+          </div>
+
+          <div v-if="activeDriveTab === 'pending'" class="status-group pending content-shell">
+            <div class="group-head">
+              <h4>Pending Drives</h4>
+              <span class="group-badge">{{ pendingDrives.length }}</span>
             </div>
-            <div class="actions">
-              <button class="btn approve" @click="handleDriveAction(drive.id, 'approve')">Approve</button>
-              <button class="btn reject" @click="handleDriveAction(drive.id, 'reject')">Reject</button>
+
+            <div v-if="!pendingDrives.length" class="empty-state">No pending drives right now.</div>
+            <div v-else class="company-list">
+              <div v-for="drive in pendingDrives" :key="drive.id" class="company-card pending">
+                <div>
+                  <h4>{{ drive.title }}</h4>
+                  <p><strong>Company:</strong> {{ drive.company_name }}</p>
+                  <p><strong>Status:</strong> Pending</p>
+                  <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
+                </div>
+                <div class="actions">
+                  <button class="btn approve" @click="handleDriveAction(drive.id, 'approve')">Approve</button>
+                  <button class="btn reject" @click="handleDriveAction(drive.id, 'reject')">Reject</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="activeDriveTab === 'approved'" class="status-group approved content-shell">
+            <div class="group-head">
+              <h4>Approved Drives</h4>
+              <span class="group-badge">{{ approvedDrives.length }}</span>
+            </div>
+
+            <div v-if="!approvedDrives.length" class="empty-state">No approved drives right now.</div>
+            <div v-else class="company-list">
+              <div v-for="drive in approvedDrives" :key="drive.id" class="company-card approved">
+                <div>
+                  <h4>{{ drive.title }}</h4>
+                  <p><strong>Company:</strong> {{ drive.company_name }}</p>
+                  <p><strong>Status:</strong> Approved</p>
+                  <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="status-group rejected content-shell">
+            <div class="group-head">
+              <h4>Rejected Drives</h4>
+              <span class="group-badge">{{ rejectedDrives.length }}</span>
+            </div>
+
+            <div v-if="!rejectedDrives.length" class="empty-state">No rejected drives right now.</div>
+            <div v-else class="company-list">
+              <div v-for="drive in rejectedDrives" :key="drive.id" class="company-card rejected">
+                <div>
+                  <h4>{{ drive.title }}</h4>
+                  <p><strong>Company:</strong> {{ drive.company_name }}</p>
+                  <p><strong>Status:</strong> Rejected</p>
+                  <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -128,30 +238,82 @@
 
       <div v-else>
         <div class="panel-head mt-2">
-          <div class="section-title-row">
-            <div>
+          <div class="section-title-row center">
+            <div class="text-center">
               <h3>Student List</h3>
               <p>Manage every student account and block or unblock access.</p>
             </div>
-            <span class="pill">{{ students.length }} shown / {{ stats.total_students || 0 }} total</span>
           </div>
         </div>
 
         <div v-if="loadingStudents" class="muted">Loading students…</div>
-        <div v-else-if="!students.length" class="muted">No students found.</div>
-        <div v-else class="company-list">
-          <div v-for="student in students" :key="student.id" class="company-card">
-            <div>
-              <h4>{{ student.name }}</h4>
-              <p><strong>Email:</strong> {{ student.email }}</p>
-              <p><strong>Branch:</strong> {{ student.branch }}</p>
-              <p><strong>Year:</strong> {{ student.year }}</p>
-              <p><strong>CGPA:</strong> {{ student.cgpa }}</p>
+        <div v-else class="company-dashboard">
+          <div class="summary-grid sticky-shell">
+            <button
+              class="summary-card pending"
+              :class="{ active: activeStudentTab === 'all' }"
+              @click="activeStudentTab = 'all'"
+            >
+              <p class="summary-label">All Students</p>
+              <p class="summary-value">{{ students.length }}</p>
+            </button>
+            <button
+              class="summary-card rejected"
+              :class="{ active: activeStudentTab === 'blocked' }"
+              @click="activeStudentTab = 'blocked'"
+            >
+              <p class="summary-label">Blocked</p>
+              <p class="summary-value">{{ blockedStudents.length }}</p>
+            </button>
+          </div>
+
+          <div v-if="activeStudentTab === 'all'" class="status-group pending content-shell">
+            <div class="group-head">
+              <h4>All Students</h4>
+              <span class="group-badge">{{ students.length }}</span>
             </div>
-            <div class="actions">
-              <button class="btn reject" @click="toggleStudentBlacklist(student.id)">
-                {{ student.blacklisted ? 'Unblock' : 'Block' }}
-              </button>
+
+            <div v-if="!students.length" class="empty-state">No students found.</div>
+            <div v-else class="company-list">
+              <div v-for="student in students" :key="student.id" class="company-card pending">
+                <div>
+                  <h4>{{ student.name }}</h4>
+                  <p><strong>Email:</strong> {{ student.email }}</p>
+                  <p><strong>Branch:</strong> {{ student.branch }}</p>
+                  <p><strong>Year:</strong> {{ student.year }}</p>
+                  <p><strong>CGPA:</strong> {{ student.cgpa }}</p>
+                </div>
+                <div class="actions">
+                  <button class="btn reject" @click="toggleStudentBlacklist(student.id)">
+                    {{ student.blacklisted ? 'Unblock' : 'Block' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="status-group rejected content-shell">
+            <div class="group-head">
+              <h4>Blocked Students</h4>
+              <span class="group-badge">{{ blockedStudents.length }}</span>
+            </div>
+
+            <div v-if="!blockedStudents.length" class="empty-state">No blocked students right now.</div>
+            <div v-else class="company-list">
+              <div v-for="student in blockedStudents" :key="student.id" class="company-card rejected">
+                <div>
+                  <h4>{{ student.name }}</h4>
+                  <p><strong>Email:</strong> {{ student.email }}</p>
+                  <p><strong>Branch:</strong> {{ student.branch }}</p>
+                  <p><strong>Year:</strong> {{ student.year }}</p>
+                  <p><strong>CGPA:</strong> {{ student.cgpa }}</p>
+                </div>
+                <div class="actions">
+                  <button class="btn reject" @click="toggleStudentBlacklist(student.id)">
+                    Unblock
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -176,6 +338,9 @@ export default {
       loadingStudents: true,
       searchTerm: "",
       activeSection: "companies",
+      activeCompanyTab: "pending",
+      activeDriveTab: "pending",
+      activeStudentTab: "all",
       tilts: [-3, 2, -1.5]
     };
   },
@@ -189,41 +354,37 @@ export default {
     rejectedCompanies() {
       return this.companies.filter((company) => company.rejected);
     },
-    companyGroups() {
-      return [
-        {
-          key: "pending",
-          title: "Pending Companies",
-          items: this.pendingCompanies
-        },
-        {
-          key: "approved",
-          title: "Approved Companies",
-          items: this.approvedCompanies
-        },
-        {
-          key: "rejected",
-          title: "Rejected Companies",
-          items: this.rejectedCompanies
-        }
-      ];
+    pendingDrives() {
+      return this.drives.filter((drive) => (drive.status || "").toLowerCase() === "pending");
+    },
+    blockedStudents() {
+      return this.students.filter((student) => student.blacklisted);
+    },
+    approvedDrives() {
+      return this.drives.filter((drive) => (drive.status || "").toLowerCase() === "approved");
+    },
+    rejectedDrives() {
+      return this.drives.filter((drive) => (drive.status || "").toLowerCase() === "rejected");
     },
     cards() {
       return [
         {
           title: "Total Students",
+          section: "students",
           value: this.stats.total_students || 0,
           color: "#FF6B4A",
           icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M7 10.5V16c0 1.2 2.2 3 5 3s5-1.8 5-3v-5.5"/><path d="M21 8v6"/></svg>`
         },
         {
           title: "Total Companies",
+          section: "companies",
           value: this.stats.total_companies || 0,
           color: "#2EC4B6",
           icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="9" height="18"/><rect x="13" y="8" width="7" height="13"/><path d="M7 7h2M7 11h2M7 15h2"/></svg>`
         },
         {
           title: "Total Placement Drives",
+          section: "drives",
           value: this.stats.total_drives || 0,
           color: "#FFC857",
           icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/></svg>`
@@ -240,6 +401,9 @@ export default {
     await this.loadAdminData();
   },
   methods: {
+    goToSection(section) {
+      this.activeSection = section;
+    },
     async loadAdminData() {
       try {
         const [statsRes, companiesRes, drivesRes, studentsRes] = await Promise.all([
@@ -360,11 +524,14 @@ export default {
   position: relative;
   background: var(--paper);
   color: var(--ink);
+  border: none;
   border-radius: 10px;
   padding: 1.75rem 1.5rem 1.5rem;
   transform: rotate(var(--tilt));
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
+  cursor: pointer;
+  text-align: left;
 }
 
 .pin-card:hover {
@@ -456,6 +623,15 @@ export default {
   flex-wrap: wrap;
 }
 
+.section-title-row.center {
+  justify-content: center;
+  text-align: center;
+}
+
+.text-center {
+  text-align: center;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -529,6 +705,22 @@ export default {
   gap: 1.5rem;
 }
 
+.content-shell {
+  min-height: 420px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  scrollbar-width: thin;
+}
+
+.sticky-shell {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper);
+  padding-bottom: 0.4rem;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -539,6 +731,9 @@ export default {
   border-radius: 12px;
   padding: 1rem 1.1rem;
   border: 1.5px solid transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .summary-card.pending {
@@ -557,6 +752,11 @@ export default {
   background: rgba(255, 107, 74, 0.12);
   border-color: rgba(255, 107, 74, 0.35);
   color: #b8391c;
+}
+
+.summary-card.active {
+  box-shadow: 0 8px 18px rgba(20, 19, 43, 0.1);
+  transform: translateY(-1px);
 }
 
 .summary-label {

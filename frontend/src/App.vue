@@ -1,14 +1,30 @@
 <template>
   <div class="app-shell">
     <nav class="navbar">
-      <a class="brand" href="#">
-        <span class="brand-dot"></span>
-        Placement Portal
-      </a>
+      <div class="nav-left">
+        <button v-if="showBackButton" class="nav-link back-btn" type="button" @click="goBack">
+          ← Back
+        </button>
+        <a class="brand" href="#">
+          <span class="brand-dot"></span>
+          Placement Portal
+        </a>
+      </div>
       <div class="nav-links">
         <router-link v-for="link in visibleLinks" :key="link.to" class="nav-link" :to="link.to">
           {{ link.label }}
         </router-link>
+        <template v-if="showCompanySections">
+          <router-link
+            v-for="section in companySections"
+            :key="section.key"
+            class="nav-link section-link"
+            :class="{ active: currentCompanySection === section.key }"
+            :to="{ path: '/company', query: { section: section.key } }"
+          >
+            {{ section.label }}
+          </router-link>
+        </template>
         <button v-if="isLoggedIn" class="nav-link logout-btn" type="button" @click="handleLogout">
           Logout
         </button>
@@ -32,13 +48,35 @@ export default {
     };
   },
   computed: {
+    showBackButton() {
+      return !["/", "/register-student", "/register-company"].includes(this.$route.path);
+    },
+    showCompanySections() {
+      return this.role === "company" && this.$route.path === "/company";
+    },
+    currentCompanySection() {
+      return this.$route.query.section || "overview";
+    },
+    companySections() {
+      return [
+        { key: "overview", label: "Overview" },
+        { key: "create", label: "Create Drive" },
+        { key: "drives", label: "All Drives" },
+        { key: "applicants", label: "Applicants" }
+      ];
+    },
     visibleLinks() {
       if (!this.isLoggedIn) {
         return [{ to: "/", label: "Login" }];
       }
 
       if (this.role === "student") {
-        return [{ to: "/student", label: "Student Dashboard" }];
+        return [
+          { to: "/student", label: "Dashboard" },
+          { to: "/student/profile", label: "Update Profile" },
+          { to: "/drives", label: "Drives" },
+          { to: "/applications", label: "Applications" }
+        ];
       }
 
       if (this.role === "company") {
@@ -70,6 +108,17 @@ export default {
       this.isLoggedIn = Boolean(user && token);
       this.role = user?.role || null;
     },
+    goBack() {
+      if (window.history.length > 1) {
+        this.$router.go(-1);
+        return;
+      }
+
+      if (this.role === "admin") this.$router.push("/admin");
+      else if (this.role === "company") this.$router.push("/company");
+      else if (this.role === "student") this.$router.push("/student");
+      else this.$router.push("/");
+    },
     handleLogout() {
       logout();
       this.syncAuth();
@@ -97,6 +146,12 @@ export default {
   background: #14132b;
   border-bottom: 1px solid rgba(239, 237, 247, 0.1);
   font-family: "Inter", sans-serif;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
 }
 
 .brand {
@@ -141,9 +196,20 @@ export default {
   background: rgba(239, 237, 247, 0.08);
 }
 
-.nav-link.router-link-exact-active {
+.nav-link.router-link-exact-active,
+.nav-link.active {
   color: #14132b;
   background: #ffc857;
+}
+
+.section-link {
+  border: 1px solid rgba(239, 237, 247, 0.12);
+}
+
+.back-btn {
+  border: 1px solid rgba(239, 237, 247, 0.16);
+  background: rgba(239, 237, 247, 0.06);
+  cursor: pointer;
 }
 
 .logout-btn {
