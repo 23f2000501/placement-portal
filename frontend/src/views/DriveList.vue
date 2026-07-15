@@ -10,20 +10,20 @@
       <p class="note-title">Loading approved drives…</p>
     </div>
 
-    <div v-else-if="!drives.length" class="note">
-      <p class="note-title">No drives pinned up yet</p>
-      <p class="note-text">Approved drives will land here as soon as companies post them.</p>
+    <div v-else-if="!availableDrives.length" class="note">
+      <p class="note-title">No available drives to apply for</p>
+      <p class="note-text">You either have applied to every approved drive or there are none open right now.</p>
     </div>
 
     <div v-else class="drive-grid">
-      <div v-for="drive in drives" :key="drive.id" class="drive-card">
+      <div v-for="drive in availableDrives" :key="drive.id" class="drive-card">
         <div>
           <h3>{{ drive.title }}</h3>
           <p><strong>Company:</strong> {{ drive.company_name }}</p>
           <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
         </div>
-        <button class="btn-action" @click="apply(drive.id)" :disabled="applyingId === drive.id || appliedIds.includes(drive.id)">
-          {{ appliedIds.includes(drive.id) ? 'Applied' : applyingId === drive.id ? 'Applying…' : 'Apply' }}
+        <button class="btn-action" @click="apply(drive.id)" :disabled="applyingId === drive.id || drive.already_applied || appliedIds.includes(drive.id)">
+          {{ drive.already_applied || appliedIds.includes(drive.id) ? 'Applied' : applyingId === drive.id ? 'Applying…' : 'Apply' }}
         </button>
       </div>
     </div>
@@ -36,7 +36,7 @@ import api from "../services/api";
 export default {
   data() {
     return {
-      drives: [],
+      availableDrives: [],
       loading: true,
       applyingId: null,
       appliedIds: []
@@ -50,7 +50,8 @@ export default {
       this.loading = true;
       try {
         const response = await api.get("/student/dashboard");
-        this.drives = response.data.drives || [];
+        this.availableDrives = response.data.available_drives || [];
+        this.appliedIds = (response.data.applied_drives || []).map((drive) => drive.id);
       } finally {
         this.loading = false;
       }
@@ -59,7 +60,26 @@ export default {
       this.applyingId = driveId;
       try {
         await api.post("/student/apply", { drive_id: driveId });
-        this.appliedIds.push(driveId);
+        if (!this.appliedIds.includes(driveId)) {
+          this.appliedIds.push(driveId);
+        }
+        const drive = this.availableDrives.find((item) => item.id === driveId);
+        if (drive) {
+          drive.already_applied = true;
+        }
+      } catch (error) {
+        const message = error.response?.data?.message;
+        if (error.response?.status === 400 && message?.includes("Already applied")) {
+          if (!this.appliedIds.includes(driveId)) {
+            this.appliedIds.push(driveId);
+          }
+          const drive = this.availableDrives.find((item) => item.id === driveId);
+          if (drive) {
+            drive.already_applied = true;
+          }
+        } else {
+          console.error("Unable to apply to drive", error);
+        }
       } finally {
         this.applyingId = null;
       }

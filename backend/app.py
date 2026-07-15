@@ -1,6 +1,8 @@
+import csv
+import os
 import re
 from datetime import date, datetime, timedelta
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_caching import Cache
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required
@@ -106,6 +108,59 @@ def create_app():
             db.session.add(student_profile)
             db.session.commit()
 
+        demo_company_user = User.query.filter_by(email="demo-company@company.com").first()
+        if not demo_company_user:
+            demo_company_user = User(name="Demo Company", email="demo-company@company.com", role="company", is_active=True)
+            demo_company_user.set_password("Company@123")
+            db.session.add(demo_company_user)
+            db.session.flush()
+
+            demo_company = CompanyProfile(
+                user_id=demo_company_user.id,
+                company_name="Demo Corp",
+                hr_contact="HR Team",
+                website="https://democorp.example.com",
+                description="Default approved drive for all students.",
+                approved=True,
+                rejected=False,
+            )
+            db.session.add(demo_company)
+            db.session.commit()
+        else:
+            demo_company = demo_company_user.company
+            if demo_company and not demo_company.approved:
+                demo_company.approved = True
+                demo_company.rejected = False
+                db.session.commit()
+
+        default_drive = PlacementDrive.query.filter_by(
+            title="Campus Placement Drive",
+            company_id=demo_company.id,
+        ).first()
+        if not default_drive:
+            default_drive = PlacementDrive(
+                company_id=demo_company.id,
+                title="Campus Placement Drive",
+                description="A default approved drive open to all students.",
+                branch_eligibility="",
+                min_cgpa=0.0,
+                year_eligibility="",
+                application_deadline=date.today() + timedelta(days=30),
+                status="Approved",
+            )
+            db.session.add(default_drive)
+            db.session.commit()
+        else:
+            updated = False
+            if default_drive.status != "Approved":
+                default_drive.status = "Approved"
+                updated = True
+            if default_drive.application_deadline < date.today():
+                default_drive.application_deadline = date.today() + timedelta(days=30)
+                updated = True
+            if updated:
+                db.session.commit()
+
     @app.route("/api/auth/login", methods=["POST"])
     def login():
         data = request.json or {}
@@ -188,7 +243,11 @@ def create_app():
             "pending_drives": PlacementDrive.query.filter_by(status="Pending").count(),
             "approved_companies": CompanyProfile.query.filter_by(approved=True).count(),
             "pending_companies": CompanyProfile.query.filter_by(approved=False, rejected=False).count(),
-            "applications": Application.query.count(),
+            "total_applications": Application.query.count(),
+            "confirmed_interviews": Application.query.filter_by(status="Confirmed").count(),
+            "interview_scheduled": Application.query.filter_by(status="Interview Scheduled").count(),
+            "selected_applications": Application.query.filter_by(status="Selected").count(),
+            "rejected_applications": Application.query.filter_by(status="Rejected").count(),
         })
 
     @app.route("/api/admin/companies", methods=["GET"])
@@ -205,6 +264,7 @@ def create_app():
         )
         companies = [{
             "id": c.id,
+            "user_id": c.user_id,
             "company_name": c.company_name,
             "hr_contact": c.hr_contact,
             "website": c.website,
@@ -231,6 +291,7 @@ def create_app():
         )
         students = [{
             "id": s.user.id,
+            "student_profile_id": s.id,
             "name": s.user.name,
             "email" : s.user.email,
             "branch": s.branch,
@@ -309,6 +370,16 @@ def create_app():
         db.session.commit()
         return jsonify({"message": "Status updated successfully", "blacklisted": user.is_blacklisted})
 
+    @app.route("/api/admin/companies/<int:company_id>/toggle_blacklist", methods=["POST"])
+    @jwt_required()
+    @role_required("admin")
+    def toggle_company_blacklist(current_user, company_id):
+        company = CompanyProfile.query.get_or_404(company_id)
+        user = User.query.get_or_404(company.user_id)
+        user.is_blacklisted = not user.is_blacklisted
+        db.session.commit()
+        return jsonify({"message": "Company status updated successfully", "blacklisted": user.is_blacklisted})
+
     @app.route("/api/admin/applications", methods=["GET"])
     @jwt_required()
     @role_required("admin")
@@ -316,8 +387,17 @@ def create_app():
         apps = Application.query.order_by(Application.application_date.desc()).all()
         return jsonify([{
             "id": a.id,
+            "student_profile_id": a.student.id,
+            "student_user_id": a.student.user.id,
             "student_name": a.student.user.name,
+            "student_email": a.student.user.email,
+            "student_branch": a.student.branch,
+            "student_year": a.student.year,
+            "company_profile_id": a.drive.company.id,
+            "company_user_id": a.drive.company.user.id,
             "company_name": a.drive.company.company_name,
+            "company_email": a.drive.company.user.email,
+            "drive_id": a.drive.id,
             "drive_title": a.drive.title,
             "status": a.status,
             "date": a.application_date.isoformat(),
@@ -466,26 +546,36 @@ def create_app():
     def student_dashboard(current_user):
         student = StudentProfile.query.filter_by(user_id=current_user.id).first()
         if not student:
-            return jsonify({"drives": []})
+            return jsonify({"available_drives": [], "applied_drives": []})
+
+        applied_drive_ids = {
+            application.drive_id
+            for application in Application.query.filter_by(student_id=student.id).all()
+        }
 
         eligible_drives = PlacementDrive.query.filter(
             PlacementDrive.status == "Approved",
             PlacementDrive.application_deadline >= date.today(),
         ).all()
 
-        drives = []
+        available_drives = []
+        applied_drives = []
         for drive in eligible_drives:
             branch_ok = is_branch_match(student.branch, drive.branch_eligibility)
             year_ok = is_year_match(student.year, drive.year_eligibility)
             if branch_ok and year_ok and student.cgpa >= drive.min_cgpa:
-                drives.append({
+                drive_payload = {
                     "id": drive.id,
                     "title": drive.title,
                     "company_name": drive.company.company_name,
                     "deadline": drive.application_deadline.isoformat(),
                     "status": drive.status,
-                })
-        return jsonify({"drives": drives})
+                }
+                if drive.id in applied_drive_ids:
+                    applied_drives.append(drive_payload)
+                else:
+                    available_drives.append(drive_payload)
+        return jsonify({"available_drives": available_drives, "applied_drives": applied_drives})
 
     @app.route("/api/student/apply", methods=["POST"])
     @jwt_required()
@@ -519,6 +609,7 @@ def create_app():
         applications = Application.query.filter_by(student_id=student.id).order_by(Application.application_date.desc()).all()
         return jsonify([{
             "id": a.id,
+            "drive_id": a.drive.id,
             "drive_title": a.drive.title,
             "company_name": a.drive.company.company_name,
             "status": a.status,
@@ -556,6 +647,39 @@ def create_app():
         student.resume_url = data.get("resume_url", student.resume_url)
         db.session.commit()
         return jsonify({"message": "Profile updated successfully"})
+
+    @app.route("/api/student/export-applications", methods=["POST"])
+    @jwt_required()
+    @role_required("student")
+    def export_applications(current_user):
+        from tasks import celery, export_application_history
+
+        student = StudentProfile.query.filter_by(user_id=current_user.id).first()
+        if not student:
+            return jsonify({"message": "Student profile not found"}), 404
+
+        try:
+            result = celery.send_task("tasks.export_application_history", args=[student.id])
+            return jsonify({"message": "Your export has been queued. You will receive an email when it is ready.", "task_id": result.id})
+        except Exception as exc:
+            # Fallback when Celery/Redis is unavailable
+            export_application_history(student.id)
+            return jsonify({"message": "Redis unavailable. Export generated synchronously.", "task_id": None})
+
+    @app.route("/api/student/download-applications", methods=["GET"])
+    @jwt_required()
+    @role_required("student")
+    def download_applications(current_user):
+        student = StudentProfile.query.filter_by(user_id=current_user.id).first()
+        if not student:
+            return jsonify({"message": "Student profile not found"}), 404
+
+        filename = f"student_{student.id}_applications.csv"
+        filepath = os.path.join(os.path.dirname(__file__), filename)
+        if not os.path.exists(filepath):
+            return jsonify({"message": "Export is not ready yet. Please queue an export first."}), 404
+
+        return send_file(filepath, as_attachment=True, mimetype="text/csv")
 
     @app.route("/api/drives/approved", methods=["GET"])
     @cache.cached(timeout=120, query_string=True)

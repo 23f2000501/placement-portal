@@ -67,9 +67,19 @@ export default {
         else if (role === "company") this.$router.push("/company");
         else this.$router.push("/student");
       } catch (e) {
-        this.errorMsg = "Couldn't log in. Check your email and password.";
+        const status = e.response?.status;
+        const message = e.response?.data?.message;
+        if (status === 403 && message === "Account blocked") {
+          this.errorMsg = "Your account is blocked. Contact the administrator.";
+        } else if (status === 401) {
+          this.errorMsg = "Invalid email or password.";
+        } else if (message) {
+          this.errorMsg = message;
+        } else {
+          this.errorMsg = "Couldn't log in. Check your email and password.";
+        }
+      } finally {
         this.loading = false;
-        throw e;
       }
     }
   }

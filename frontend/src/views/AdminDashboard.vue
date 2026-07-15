@@ -34,6 +34,16 @@
               <p>Track every company at a glance and review their approval status.</p>
             </div>
           </div>
+          <div class="search-row">
+            <input
+              class="field"
+              v-model="searchTerm"
+              :placeholder="searchPlaceholder"
+              @keyup.enter="loadAdminData"
+            />
+            <button class="btn" type="button" @click="loadAdminData">Search</button>
+            <button class="btn secondary" type="button" @click="clearSearch">Clear</button>
+          </div>
         </div>
 
         <div v-if="loadingCompanies" class="muted">Loading companies…</div>
@@ -85,6 +95,9 @@
                 <div class="actions">
                   <button class="btn approve" @click="handleAction(company.id, 'approve')">Approve</button>
                   <button class="btn reject" @click="handleAction(company.id, 'reject')">Reject</button>
+                  <button class="btn reject" @click="toggleCompanyBlacklist(company.user_id)">
+                    {{ company.blacklisted ? 'Unblock' : 'Block' }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -107,6 +120,11 @@
                   <p><strong>Description:</strong> {{ company.description || '—' }}</p>
                   <p><strong>Status:</strong> Approved</p>
                 </div>
+                <div class="actions">
+                  <button class="btn reject" @click="toggleCompanyBlacklist(company.id)">
+                    {{ company.blacklisted ? 'Unblock' : 'Block' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -128,6 +146,11 @@
                   <p><strong>Description:</strong> {{ company.description || '—' }}</p>
                   <p><strong>Status:</strong> Rejected</p>
                 </div>
+                <div class="actions">
+                  <button class="btn reject" @click="toggleCompanyBlacklist(company.id)">
+                    {{ company.blacklisted ? 'Unblock' : 'Block' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -141,6 +164,16 @@
               <h3>Drive Registry</h3>
               <p>Review every placement drive and switch between its approval states.</p>
             </div>
+          </div>
+          <div class="search-row">
+            <input
+              class="field"
+              v-model="searchTerm"
+              :placeholder="searchPlaceholder"
+              @keyup.enter="loadAdminData"
+            />
+            <button class="btn" type="button" @click="loadAdminData">Search</button>
+            <button class="btn secondary" type="button" @click="clearSearch">Clear</button>
           </div>
         </div>
 
@@ -236,6 +269,108 @@
         </div>
       </div>
 
+      <div v-else-if="activeSection === 'reports'">
+        <div class="panel-head mt-2">
+          <div class="section-title-row center">
+            <div class="text-center">
+              <h3>Placement Reports</h3>
+              <p>View placement metrics, interview progress, and application outcomes.</p>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="loadingReports" class="muted">Loading reports…</div>
+        <div v-else class="company-dashboard">
+          <div class="summary-grid sticky-shell">
+            <button
+              type="button"
+              v-for="card in reportsCards"
+              :key="card.title"
+              class="summary-card approved report-card"
+              :class="{ active: selectedReportCard === card.title }"
+              @click="selectedReportCard = card.title"
+            >
+              <p class="summary-label">{{ card.title }}</p>
+              <p class="summary-value">{{ card.value }}</p>
+            </button>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <div class="reports-block">
+            <div class="status-group pending content-shell">
+              <div class="group-head">
+                <h4>{{ selectedReportCard }}</h4>
+                <span class="group-badge">{{ selectedReportApplications.length }} items</span>
+              </div>
+
+              <p class="muted">{{ reportDescription }}</p>
+
+              <div v-if="!selectedReportApplications.length" class="empty-state">No matching applications yet.</div>
+              <div v-else class="company-list">
+                <div
+                  v-for="app in selectedReportApplications"
+                  :key="app.id"
+                  class="company-card pending"
+                >
+                  <div>
+                    <h4>{{ app.student_name }} → {{ app.company_name }}</h4>
+                    <p><strong>Drive:</strong> {{ app.drive_title }}</p>
+                    <p><strong>Status:</strong> {{ app.status }}</p>
+                    <p><strong>Date:</strong> {{ formatDate(app.date) }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="status-group approved content-shell">
+              <div class="group-head">
+                <h4>Top Companies by Applications</h4>
+                <span class="group-badge">{{ companyReports.length }} companies</span>
+              </div>
+
+              <div v-if="!companyReports.length" class="empty-state">No company report data yet.</div>
+              <div v-else class="company-list">
+                <div v-for="company in companyReports" :key="company.company_name" class="company-card approved">
+                  <div>
+                    <h4>{{ company.company_name }}</h4>
+                    <p><strong>Applications:</strong> {{ company.applications }}</p>
+                    <p><strong>Confirmed:</strong> {{ company.confirmed }}</p>
+                    <p><strong>Scheduled:</strong> {{ company.scheduled }}</p>
+                    <p><strong>Selected:</strong> {{ company.selected }}</p>
+                    <p><strong>Rejected:</strong> {{ company.rejected }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="status-group rejected content-shell">
+              <div class="group-head">
+                <h4>Student Placement Activity</h4>
+                <span class="group-badge">{{ studentReports.length }} students</span>
+              </div>
+
+              <div v-if="!studentReports.length" class="empty-state">No student report data yet.</div>
+              <div v-else class="company-list">
+                <div v-for="student in studentReports" :key="student.student_id" class="company-card rejected">
+                  <div>
+                    <h4>{{ student.name }}</h4>
+                    <p><strong>Email:</strong> {{ student.email }}</p>
+                    <p><strong>Branch:</strong> {{ student.branch }}</p>
+                    <p><strong>Year:</strong> {{ student.year }}</p>
+                    <p><strong>Applications:</strong> {{ student.applications }}</p>
+                    <p><strong>Confirmed:</strong> {{ student.confirmed }}</p>
+                    <p><strong>Scheduled:</strong> {{ student.scheduled }}</p>
+                    <p><strong>Selected:</strong> {{ student.selected }}</p>
+                    <p><strong>Rejected:</strong> {{ student.rejected }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-else>
         <div class="panel-head mt-2">
           <div class="section-title-row center">
@@ -243,6 +378,16 @@
               <h3>Student List</h3>
               <p>Manage every student account and block or unblock access.</p>
             </div>
+          </div>
+          <div class="search-row">
+            <input
+              class="field"
+              v-model="searchTerm"
+              :placeholder="searchPlaceholder"
+              @keyup.enter="loadAdminData"
+            />
+            <button class="btn" type="button" @click="loadAdminData">Search</button>
+            <button class="btn secondary" type="button" @click="clearSearch">Clear</button>
           </div>
         </div>
 
@@ -332,15 +477,18 @@ export default {
       companies: [],
       drives: [],
       students: [],
+      applications: [],
       loading: true,
       loadingCompanies: true,
       loadingDrives: true,
       loadingStudents: true,
+      loadingReports: true,
       searchTerm: "",
       activeSection: "companies",
       activeCompanyTab: "pending",
       activeDriveTab: "pending",
       activeStudentTab: "all",
+      selectedReportCard: "Applications",
       tilts: [-3, 2, -1.5]
     };
   },
@@ -366,6 +514,45 @@ export default {
     rejectedDrives() {
       return this.drives.filter((drive) => (drive.status || "").toLowerCase() === "rejected");
     },
+    totalApplications() {
+      return this.applications.length;
+    },
+    applicationStatusCounts() {
+      return this.selectedReportApplications.reduce((counts, app) => {
+        const status = app.status || "Unknown";
+        counts[status] = (counts[status] || 0) + 1;
+        return counts;
+      }, {});
+    },
+    selectedReportApplications() {
+      if (this.selectedReportCard === "Confirmed Interviews") {
+        return this.applications.filter((app) => app.status === "Confirmed");
+      }
+      if (this.selectedReportCard === "Scheduled Interviews") {
+        return this.applications.filter((app) => app.status === "Interview Scheduled");
+      }
+      if (this.selectedReportCard === "Selected") {
+        return this.applications.filter((app) => app.status === "Selected");
+      }
+      return this.applications;
+    },
+    reportDescription() {
+      return {
+        Applications: "All applications and their current status across company drives.",
+        "Confirmed Interviews": "Applications where interviews have been confirmed.",
+        "Scheduled Interviews": "Applications with upcoming scheduled interviews.",
+        Selected: "Applications where students have been selected by companies.",
+      }[this.selectedReportCard] || "Review the latest application activity.";
+    },
+    selectedApplicationsCount() {
+      return this.applications.filter((app) => app.status === "Selected").length;
+    },
+    confirmedInterviews() {
+      return this.applications.filter((app) => app.status === "Confirmed").length;
+    },
+    interviewScheduled() {
+      return this.applications.filter((app) => app.status === "Interview Scheduled").length;
+    },
     cards() {
       return [
         {
@@ -388,12 +575,113 @@ export default {
           value: this.stats.total_drives || 0,
           color: "#FFC857",
           icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3v18"/><path d="M6 4h12l-3 4 3 4H6"/></svg>`
+        },
+        {
+          title: "Reports",
+          section: "reports",
+          value: this.stats.total_applications || 0,
+          color: "#9D4EDD",
+          icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/><path d="M8 5v14"/></svg>`
         }
       ];
+    },
+    reportsCards() {
+      return [
+        {
+          title: "Applications",
+          value: this.stats.total_applications || this.totalApplications || 0,
+          color: "#9D4EDD"
+        },
+        {
+          title: "Confirmed Interviews",
+          value: this.stats.confirmed_interviews || this.confirmedInterviews || 0,
+          color: "#6B46C1"
+        },
+        {
+          title: "Scheduled Interviews",
+          value: this.stats.interview_scheduled || this.interviewScheduled || 0,
+          color: "#38B2AC"
+        },
+        {
+          title: "Selected",
+          value: this.stats.selected_applications || this.selectedApplicationsCount || 0,
+          color: "#48BB78"
+        }
+      ];
+    },
+    companyReports() {
+      const companyMap = {};
+      const companyByUser = this.companies.reduce((map, company) => {
+        map[company.user_id] = company;
+        return map;
+      }, {});
+
+      this.applications.forEach((app) => {
+        const companyKey = app.company_user_id || app.company_profile_id || app.company_name;
+        const name = app.company_name || "Unknown Company";
+        if (!companyMap[companyKey]) {
+          companyMap[companyKey] = {
+            company_name: name,
+            applications: 0,
+            confirmed: 0,
+            scheduled: 0,
+            selected: 0,
+            rejected: 0,
+            other: 0
+          };
+        }
+        companyMap[companyKey].applications += 1;
+        const status = app.status;
+        if (status === "Confirmed") companyMap[companyKey].confirmed += 1;
+        else if (status === "Interview Scheduled") companyMap[companyKey].scheduled += 1;
+        else if (status === "Selected") companyMap[companyKey].selected += 1;
+        else if (status === "Rejected") companyMap[companyKey].rejected += 1;
+        else companyMap[companyKey].other += 1;
+      });
+      return Object.values(companyMap).sort((a, b) => b.applications - a.applications);
+    },
+    studentReports() {
+      const studentByUser = this.students.reduce((map, student) => {
+        map[student.id] = student;
+        return map;
+      }, {});
+
+      const studentMap = {};
+      this.applications.forEach((app) => {
+        const key = app.student_user_id || app.student_profile_id || app.student_name;
+        if (!studentMap[key]) {
+          const profile = studentByUser[app.student_user_id];
+          studentMap[key] = {
+            student_id: app.student_user_id || null,
+            student_profile_id: app.student_profile_id || null,
+            name: app.student_name || (profile && profile.name) || "Unknown Student",
+            email: (profile && profile.email) || "—",
+            branch: (profile && profile.branch) || "—",
+            year: (profile && profile.year) || "—",
+            blacklisted: (profile && profile.blacklisted) || false,
+            applications: 0,
+            confirmed: 0,
+            scheduled: 0,
+            selected: 0,
+            rejected: 0,
+            other: 0
+          };
+        }
+        const student = studentMap[key];
+        student.applications += 1;
+        const status = app.status;
+        if (status === "Confirmed") student.confirmed += 1;
+        else if (status === "Interview Scheduled") student.scheduled += 1;
+        else if (status === "Selected") student.selected += 1;
+        else if (status === "Rejected") student.rejected += 1;
+        else student.other += 1;
+      });
+      return Object.values(studentMap).sort((a, b) => b.applications - a.applications);
     },
     searchPlaceholder() {
       if (this.activeSection === "drives") return "Search placement drives";
       if (this.activeSection === "students") return "Search students";
+      if (this.activeSection === "reports") return "Search reports";
       return "Search companies";
     }
   },
@@ -406,17 +694,19 @@ export default {
     },
     async loadAdminData() {
       try {
-        const [statsRes, companiesRes, drivesRes, studentsRes] = await Promise.all([
+        const [statsRes, companiesRes, drivesRes, studentsRes, applicationsRes] = await Promise.all([
           api.get("/admin/dashboard"),
           api.get("/admin/companies", { params: { search: this.searchTerm } }),
           api.get("/admin/drives", { params: { search: this.searchTerm } }),
-          api.get("/admin/students", { params: { search: this.searchTerm } })
+          api.get("/admin/students", { params: { search: this.searchTerm } }),
+          api.get("/admin/applications")
         ]);
 
         this.stats = statsRes.data;
         this.companies = companiesRes.data;
         this.drives = drivesRes.data;
         this.students = studentsRes.data;
+        this.applications = applicationsRes.data;
       } catch (error) {
         console.error("Failed to load admin data", error);
       } finally {
@@ -424,6 +714,7 @@ export default {
         this.loadingCompanies = false;
         this.loadingDrives = false;
         this.loadingStudents = false;
+        this.loadingReports = false;
       }
     },
     async handleAction(companyId, action) {
@@ -450,6 +741,16 @@ export default {
         console.error("Failed to update drive status", error);
       }
     },
+    async toggleCompanyBlacklist(companyId) {
+      try {
+        await api.post(`/admin/companies/${companyId}/toggle_blacklist`);
+        this.companies = this.companies.map((company) =>
+          company.id === companyId ? { ...company, blacklisted: !company.blacklisted } : company
+        );
+      } catch (error) {
+        console.error("Failed to update company blacklist", error);
+      }
+    },
     async toggleStudentBlacklist(userId) {
       try {
         await api.post(`/admin/users/${userId}/toggle_blacklist`);
@@ -459,6 +760,23 @@ export default {
       } catch (error) {
         console.error("Failed to update student blacklist", error);
       }
+    },
+    formatDate(value) {
+      if (!value) return "—";
+      try {
+        const date = new Date(value);
+        return date.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      } catch (err) {
+        return value;
+      }
+    },
+    clearSearch() {
+      this.searchTerm = "";
+      this.loadAdminData();
     }
   }
 };
@@ -539,6 +857,12 @@ export default {
   box-shadow: 0 18px 34px rgba(0, 0, 0, 0.4);
 }
 
+.pin-card:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+  transform: rotate(0deg) translateY(-4px);
+}
+
 .pin-dot {
   position: absolute;
   top: -9px;
@@ -582,7 +906,10 @@ export default {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pin-card {
+  .pin-card,
+  .btn,
+  .summary-card,
+  .report-card {
     transition: none;
   }
 }
@@ -600,7 +927,11 @@ export default {
 }
 
 .panel-head {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
 }
 
 .panel-head h3 {
@@ -642,6 +973,39 @@ export default {
   font-size: 0.8rem;
   font-weight: 600;
   font-family: "Space Grotesk", sans-serif;
+}
+
+/* Search row + form controls (previously referenced in template but undefined) */
+
+.search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+
+.field {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 0.65rem 0.9rem;
+  border: 1.5px solid rgba(20, 19, 43, 0.15);
+  border-radius: 8px;
+  font-family: "Inter", sans-serif;
+  font-size: 0.92rem;
+  background: #fff;
+  color: var(--ink);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field::placeholder {
+  color: rgba(20, 19, 43, 0.4);
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(255, 107, 74, 0.15);
 }
 
 .tab-row {
@@ -734,6 +1098,16 @@ export default {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.summary-card:hover {
+  transform: translateY(-1px);
+}
+
+.summary-card:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .summary-card.pending {
@@ -826,6 +1200,11 @@ export default {
   border-radius: 10px;
   padding: 1rem 1.1rem;
   background: #fbfaff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.company-card:hover {
+  box-shadow: 0 6px 14px rgba(20, 19, 43, 0.06);
 }
 
 .company-card.approved {
@@ -855,25 +1234,52 @@ export default {
   color: rgba(20, 19, 43, 0.75);
 }
 
-.actions {
-  display: flex;
-  gap: 0.6rem;
-  flex-shrink: 0;
-}
+/* Buttons + inline actions (previously referenced in template but undefined) */
 
 .btn {
   border: none;
-  border-radius: 999px;
-  padding: 0.55rem 1.1rem;
-  font-family: "Space Grotesk", sans-serif;
-  font-weight: 700;
-  font-size: 0.85rem;
+  border-radius: 8px;
+  padding: 0.6rem 1.15rem;
+  font-family: "Inter", sans-serif;
+  font-weight: 600;
+  font-size: 0.88rem;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  background: var(--ink);
+  color: var(--paper);
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, opacity 0.15s ease;
 }
 
 .btn:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.btn.secondary {
+  background: #fff;
+  color: var(--ink);
+  border: 1.5px solid rgba(20, 19, 43, 0.15);
+}
+
+.btn.secondary:hover {
+  border-color: var(--ink);
+  box-shadow: none;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .btn.approve {
@@ -894,14 +1300,53 @@ export default {
   box-shadow: 0 8px 16px rgba(255, 107, 74, 0.35);
 }
 
+.report-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.report-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.12);
+}
+
+.report-card.active {
+  border-color: rgba(157, 78, 221, 0.35);
+  background: rgba(157, 78, 221, 0.14);
+}
+
+.section-divider {
+  height: 1px;
+  background: rgba(20, 19, 43, 0.12);
+  margin: 1.25rem 0;
+}
+
+.reports-block {
+  display: grid;
+  gap: 1.25rem;
+}
+
 @media (max-width: 680px) {
   .company-card {
     flex-direction: column;
     align-items: flex-start;
   }
 
+  .company-card .actions {
+    width: 100%;
+  }
+
   .section-title-row {
     align-items: flex-start;
+  }
+
+  .search-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-row .btn {
+    width: 100%;
   }
 }
 </style>

@@ -106,9 +106,9 @@
             <p>These are the placement drives currently open for applications.</p>
           </div>
 
-          <div v-if="!drives.length" class="empty-state">No approved drives are available right now.</div>
+          <div v-if="!availableDrives.length" class="empty-state">No available drives to apply for right now.</div>
           <div v-else class="list-stack">
-            <div v-for="drive in drives" :key="drive.id" class="list-item">
+            <div v-for="drive in availableDrives" :key="drive.id" class="list-item">
               <div>
                 <h4>{{ drive.title }}</h4>
                 <p><strong>Company:</strong> {{ drive.company_name }}</p>
@@ -117,10 +117,27 @@
               <button
                 class="btn-action"
                 @click="apply(drive.id)"
-                :disabled="applyingId === drive.id || appliedIds.includes(drive.id)"
+                :disabled="applyingId === drive.id"
               >
-                {{ appliedIds.includes(drive.id) ? 'Applied' : applyingId === drive.id ? 'Applying…' : 'Apply' }}
+                {{ applyingId === drive.id ? 'Applying…' : 'Apply' }}
               </button>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="alreadyAppliedDrives.length" class="panel-card">
+          <div class="panel-head">
+            <h3>Already Applied</h3>
+            <p>These drives have already been applied for and are tracked under your application history.</p>
+          </div>
+          <div class="list-stack">
+            <div v-for="drive in alreadyAppliedDrives" :key="drive.id" class="list-item applied-item">
+              <div>
+                <h4>{{ drive.title }}</h4>
+                <p><strong>Company:</strong> {{ drive.company_name }}</p>
+                <p><strong>Deadline:</strong> {{ drive.deadline }}</p>
+              </div>
+              <button class="btn-action" disabled>Applied</button>
             </div>
           </div>
         </section>
@@ -129,6 +146,12 @@
           <div class="panel-head">
             <h3>Applications & Placement History</h3>
             <p>Every submission you make is tracked here with its latest status.</p>
+            <button class="btn-action small" type="button" @click="exportApplications" :disabled="exporting">
+              {{ exporting ? 'Exporting…' : 'Export as CSV' }}
+            </button>
+            <button class="btn-action small secondary" type="button" @click="downloadApplications" :disabled="downloadLoading">
+              {{ downloadLoading ? 'Downloading…' : 'Download latest CSV' }}
+            </button>
           </div>
 
           <div v-if="!applications.length" class="empty-state">You have not applied to any drive yet.</div>
@@ -186,6 +209,7 @@ export default {
     return {
       profile: null,
       drives: [],
+      appliedDrives: [],
       applications: [],
       loading: true,
       savingProfile: false,
@@ -203,12 +227,20 @@ export default {
       },
       studentSelectedSlot: {},
       studentProposedSlots: {},
-      studentRescheduleOpen: {}
+      studentRescheduleOpen: {},
+      exporting: false,
+      downloadLoading: false
     };
   },
   computed: {
     isProfileView() {
       return this.$route.path === "/student/profile";
+    },
+    availableDrives() {
+      return this.drives;
+    },
+    alreadyAppliedDrives() {
+      return this.appliedDrives;
     }
   },
   async mounted() {
@@ -225,8 +257,16 @@ export default {
         ]);
 
         this.profile = profileRes.data;
-        this.drives = drivesRes.data.drives || [];
+        this.drives = drivesRes.data.available_drives || [];
+        this.appliedDrives = drivesRes.data.applied_drives || [];
         this.applications = applicationsRes.data || [];
+        this.appliedIds = Array.from(
+          new Set(
+            this.applications
+              .map((application) => application.drive_id)
+              .filter((id) => id !== null && id !== undefined)
+          )
+        );
         this.form = {
           name: this.profile.name || "",
           email: this.profile.email || "",
@@ -292,8 +332,15 @@ export default {
         this.profileMessageType = "success";
         await this.loadData();
       } catch (error) {
-        this.profileMessage = error.response?.data?.message || "Couldn't apply right now.";
-        this.profileMessageType = "error";
+        const message = error.response?.data?.message;
+        if (error.response?.status === 400 && message?.includes("Already applied")) {
+          this.profileMessage = "Already applied to this drive.";
+          this.profileMessageType = "success";
+          await this.loadData();
+        } else {
+          this.profileMessage = message || "Couldn't apply right now.";
+          this.profileMessageType = "error";
+        }
       } finally {
         this.applyingId = null;
       }
@@ -336,6 +383,44 @@ export default {
     async submitChangeSlot(applicationId) {
       // reuse requestReschedule flow for submitting change
       await this.requestReschedule(applicationId);
+    },
+    async exportApplications() {
+      this.exporting = true;
+      this.profileMessage = "";
+      try {
+        const response = await api.post("/student/export-applications");
+        this.profileMessage = response.data.message || "Export job queued.";
+        this.profileMessageType = "success";
+      } catch (error) {
+        this.profileMessage = error.response?.data?.message || "Could not queue export.";
+        this.profileMessageType = "error";
+      } finally {
+        this.exporting = false;
+      }
+    },
+    async downloadApplications() {
+      this.downloadLoading = true;
+      this.profileMessage = "";
+      try {
+        const response = await api.get("/student/download-applications", {
+          responseType: "blob"
+        });
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: response.headers["content-type"] || "text/csv" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", "application_history.csv");
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        this.profileMessage = "Download started.";
+        this.profileMessageType = "success";
+      } catch (error) {
+        this.profileMessage = error.response?.data?.message || "Unable to download export file.";
+        this.profileMessageType = "error";
+      } finally {
+        this.downloadLoading = false;
+      }
     }
   }
 };
