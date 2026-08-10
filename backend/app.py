@@ -406,6 +406,31 @@ def create_app():
             "date": a.application_date.isoformat(),
         } for a in apps])
 
+    @app.route("/api/admin/send-email", methods=["POST"])
+    @jwt_required()
+    @role_required("admin")
+    def admin_send_email(current_user):
+        data = request.json or {}
+        subject = data.get("subject", "Announcement from Placement Portal")
+        body = data.get("body", "")
+        recipients = data.get("recipients")
+
+        if not recipients:
+            students = User.query.filter_by(role="student").all()
+            recipients = [s.email for s in students if s.email]
+
+        if not recipients:
+            return jsonify({"message": "No recipients found"}), 400
+
+        try:
+            from tasks import send_email
+
+            # Use Celery task to send emails asynchronously
+            send_email.delay(subject, recipients, body)
+            return jsonify({"message": "Email sending queued", "recipients_count": len(recipients)})
+        except Exception as exc:
+            return jsonify({"message": "Failed to queue email", "error": str(exc)}), 500
+
     @app.route("/api/company/dashboard", methods=["GET"])
     @jwt_required()
     @role_required("company")

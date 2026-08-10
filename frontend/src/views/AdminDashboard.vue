@@ -371,6 +371,43 @@
         </div>
       </div>
 
+      <div v-else-if="activeSection === 'email'">
+        <div class="panel-head mt-2">
+          <div class="section-title-row">
+            <div>
+              <h3>Compose Email</h3>
+              <p>Fill sender, recipients, subject and message. Click Send to queue the email.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="content-shell">
+          <div class="form-grid">
+            <label class="field-label">Sender Name</label>
+            <input class="field" v-model="email_sender_name" placeholder="Sender name" />
+
+            <label class="field-label">Recipient Name (optional)</label>
+            <input class="field" v-model="email_recipient_name" placeholder="Recipient's name (optional)" />
+
+            <label class="field-label">Recipients (comma-separated emails)</label>
+            <input class="field" v-model="email_recipients" placeholder="Leave empty to send to all students" />
+
+            <label class="field-label">Subject</label>
+            <input class="field" v-model="email_subject" placeholder="Email subject" />
+
+            <label class="field-label">Message</label>
+            <textarea class="field" v-model="email_body" rows="8" placeholder="Write your message here"></textarea>
+
+            <div></div>
+            <div class="actions">
+              <button class="btn" :disabled="sendingEmail" @click="sendAdminEmail">Send</button>
+              <button class="btn secondary" type="button" @click="clearEmailForm" :disabled="sendingEmail">Clear</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
       <div v-else>
         <div class="panel-head mt-2">
           <div class="section-title-row center">
@@ -490,6 +527,14 @@ export default {
       activeStudentTab: "all",
       selectedReportCard: "Applications",
       tilts: [-3, 2, -1.5]
+      ,
+      // email compose state
+      email_sender_name: "Institute Admin",
+      email_recipient_name: "",
+      email_recipients: "", // comma-separated emails; empty means broadcast to all students
+      email_subject: "",
+      email_body: "",
+      sendingEmail: false,
     };
   },
   computed: {
@@ -583,6 +628,8 @@ export default {
           color: "#9D4EDD",
           icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/><path d="M8 5v14"/></svg>`
         }
+        ,
+        // Email card removed — access via navbar only
       ];
     },
     reportsCards() {
@@ -687,6 +734,9 @@ export default {
   },
   async mounted() {
     await this.loadAdminData();
+    if (this.$route && this.$route.query && this.$route.query.section === "email") {
+      this.activeSection = "email";
+    }
   },
   methods: {
     goToSection(section) {
@@ -778,6 +828,37 @@ export default {
       this.searchTerm = "";
       this.loadAdminData();
     }
+    ,
+    async sendAdminEmail() {
+      if (!this.email_subject.trim() || !this.email_body.trim()) {
+        window.alert("Please provide a subject and message body before sending.");
+        return;
+      }
+      this.sendingEmail = true;
+      try {
+        const payload = {
+          subject: this.email_subject,
+          body: `From: ${this.email_sender_name}\n\n${this.email_body}`,
+        };
+        const recipients = (this.email_recipients || "").split(",").map((s) => s.trim()).filter(Boolean);
+        if (recipients.length) payload.recipients = recipients;
+
+        const res = await api.post("/admin/send-email", payload);
+        window.alert(res.data.message || "Email queued for sending.");
+      } catch (err) {
+        console.error("Failed to send email", err);
+        window.alert((err.response && err.response.data && err.response.data.message) || "Failed to send email");
+      } finally {
+        this.sendingEmail = false;
+      }
+    },
+    clearEmailForm() {
+      this.email_sender_name = "Institute Admin";
+      this.email_recipient_name = "";
+      this.email_recipients = "";
+      this.email_subject = "";
+      this.email_body = "";
+    }
   }
 };
 </script>
@@ -816,6 +897,50 @@ export default {
   margin: 0 0 0.5rem;
 }
 
+
+/* Email compose form styles */
+.content-shell .form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1rem;
+  align-items: start;
+  max-width: 980px;
+  margin: 1rem auto;
+}
+.content-shell .form-grid .field-label {
+  grid-column: span 2;
+  color: rgba(20,20,30,0.75);
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+.content-shell .form-grid .field {
+  grid-column: span 2;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(20,20,30,0.06);
+  background: rgba(0,0,0,0.02);
+  color: var(--ink);
+}
+.content-shell .form-grid textarea.field {
+  min-height: 160px;
+}
+.content-shell .actions {
+  grid-column: span 2;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+.btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 860px) {
+  .content-shell .form-grid { grid-template-columns: 1fr; }
+  .content-shell .form-grid .field { grid-column: span 1; }
+  .content-shell .form-grid .actions { justify-content: stretch; }
+}
 .headline {
   font-family: "Space Grotesk", sans-serif;
   font-weight: 700;
@@ -975,7 +1100,6 @@ export default {
   font-family: "Space Grotesk", sans-serif;
 }
 
-/* Search row + form controls (previously referenced in template but undefined) */
 
 .search-row {
   display: flex;
@@ -989,6 +1113,7 @@ export default {
   flex: 1 1 220px;
   min-width: 180px;
   padding: 0.65rem 0.9rem;
+  /* margin : 1em; */
   border: 1.5px solid rgba(20, 19, 43, 0.15);
   border-radius: 8px;
   font-family: "Inter", sans-serif;

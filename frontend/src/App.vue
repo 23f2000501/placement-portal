@@ -9,11 +9,14 @@
           <span class="brand-dot"></span>
           Placement Portal
         </a>
-      </div>
-      <div class="nav-links">
+        </div>
+        <div class="nav-links">
         <router-link v-for="link in visibleLinks" :key="link.to" class="nav-link" :to="link.to">
           {{ link.label }}
         </router-link>
+        <button v-if="role === 'admin'" class="nav-link" type="button" @click="sendEmail">
+          Send Email
+        </button>
         <template v-if="showCompanySections">
           <router-link
             v-for="section in companySections"
@@ -38,6 +41,7 @@
 
 <script>
 import { getAuth, logout } from "./store/auth";
+import api from "./services/api";
 
 export default {
   data() {
@@ -106,7 +110,12 @@ export default {
       const { user, token } = getAuth();
       this.user = user;
       this.isLoggedIn = Boolean(user && token);
-      this.role = user?.role || null;
+      this.role = (user && user.role) ? user.role : null;
+    },
+
+    async sendEmail() {
+      // Navigate to the Admin -> Email compose tab so admin can compose and send manually
+      this.$router.push({ path: "/admin", query: { section: "email" } });
     },
     goBack() {
       if (window.history.length > 1) {
